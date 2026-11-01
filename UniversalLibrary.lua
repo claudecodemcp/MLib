@@ -62,7 +62,9 @@ end
 
 local function New(Class, Props, Parent)
     local Obj = Instance.new(Class)
-    Obj.BorderSizePixel = 0
+    pcall(function()
+        Obj.BorderSizePixel = 0
+    end)
 
     if Obj:IsA("GuiButton") then
         Obj.AutoButtonColor = false
