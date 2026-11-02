@@ -1,9 +1,3 @@
---[[
-    MLib - Simple Dark UI Library
-    Inspired by the clean floating-panel look from the screenshot.
-    API is intentionally similar to Obsidian-style libraries.
-]]
-
 local MLib = {
     Version = "1.0.0",
     Flags = {},
