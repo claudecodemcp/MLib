@@ -1,35 +1,46 @@
 --[[
-    MLib - Clean Dark UI Library
-    Designed to closely match the floating panel style from the screenshot.
+    Script Lib
+    Simple Obsidian-style API + smooth black/gray transparent UI
 ]]
 
-local MLib = {
-    Version = "1.1.0",
+local ScriptLib = {
+    Version = "2.1.0",
     Flags = {},
 }
 
+-------------------------------------------------
 -- Services
-local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
+-------------------------------------------------
+local Players          = game:GetService("Players")
+local TweenService     = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
+local CoreGui          = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 
--- Theme matching the screenshot
+-------------------------------------------------
+-- Theme
+-------------------------------------------------
 local Theme = {
-    Background      = Color3.fromRGB(22, 22, 28),
-    Secondary       = Color3.fromRGB(30, 30, 38),
-    Tertiary        = Color3.fromRGB(40, 40, 50),
-    Accent          = Color3.fromRGB(145, 100, 255),
-    Text            = Color3.fromRGB(235, 235, 245),
-    TextDim         = Color3.fromRGB(150, 150, 165),
-    Outline         = Color3.fromRGB(55, 55, 70),
-    ToggleOn        = Color3.fromRGB(145, 100, 255),
-    ToggleOff       = Color3.fromRGB(55, 55, 70),
-    SliderBg        = Color3.fromRGB(45, 45, 55),
-    Danger          = Color3.fromRGB(230, 70, 70),
+    Background     = Color3.fromRGB(16, 16, 18),
+    Secondary      = Color3.fromRGB(22, 22, 26),
+    Tertiary       = Color3.fromRGB(32, 32, 38),
+    Accent         = Color3.fromRGB(135, 100, 255),
+    Text           = Color3.fromRGB(240, 240, 245),
+    TextDim        = Color3.fromRGB(155, 155, 165),
+    Outline        = Color3.fromRGB(50, 50, 60),
+    ToggleOn       = Color3.fromRGB(135, 100, 255),
+    ToggleOff      = Color3.fromRGB(55, 55, 65),
+    SliderBg       = Color3.fromRGB(40, 40, 48),
+    Danger         = Color3.fromRGB(230, 70, 70),
+
+    WindowTransparency = 0.12,
+    StrokeTransparency = 0.5,
+    CornerRadius       = 12,
 }
+
+local TweenInfoFast = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local TweenInfoMed  = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
 -------------------------------------------------
 -- Utilities
@@ -37,25 +48,37 @@ local Theme = {
 local function Create(class, props)
     local inst = Instance.new(class)
     for k, v in pairs(props or {}) do
-        if k ~= "Parent" then
-            inst[k] = v
-        end
+        if k ~= "Parent" then inst[k] = v end
     end
-    if props and props.Parent then
-        inst.Parent = props.Parent
-    end
+    if props and props.Parent then inst.Parent = props.Parent end
     return inst
 end
 
-local function Round(num, places)
-    local mult = 10 ^ (places or 0)
-    return math.floor(num * mult + 0.5) / mult
+local function Round(n, p)
+    local m = 10 ^ (p or 0)
+    return math.floor(n * m + 0.5) / m
 end
 
-local function Tween(obj, props, time)
-    local tw = TweenService:Create(obj, TweenInfo.new(time or 0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
+local function Tween(obj, props, info)
+    local tw = TweenService:Create(obj, info or TweenInfoFast, props)
     tw:Play()
     return tw
+end
+
+local function AddCorner(parent, r)
+    return Create("UICorner", {
+        CornerRadius = UDim.new(0, r or Theme.CornerRadius),
+        Parent = parent,
+    })
+end
+
+local function AddStroke(parent, trans)
+    return Create("UIStroke", {
+        Color = Theme.Outline,
+        Thickness = 1,
+        Transparency = trans or Theme.StrokeTransparency,
+        Parent = parent,
+    })
 end
 
 local function MakeDraggable(frame, handle)
@@ -63,7 +86,8 @@ local function MakeDraggable(frame, handle)
     handle = handle or frame
 
     handle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startPos = frame.Position
@@ -76,21 +100,56 @@ local function MakeDraggable(frame, handle)
     end)
 
     UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch) then
+            local d = input.Position - dragStart
             frame.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y
             )
         end
     end)
 end
 
+local function AddNoise(parent)
+    local noise = Create("ImageLabel", {
+        Name = "Noise",
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        Image = "rbxassetid://9968344227",
+        ImageTransparency = 0.88,
+        ScaleType = Enum.ScaleType.Tile,
+        TileSize = UDim2.fromOffset(128, 128),
+        ZIndex = 0,
+        Parent = parent,
+    })
+    AddCorner(noise, Theme.CornerRadius)
+    return noise
+end
+
+local function AddVignette(parent)
+    local vig = Create("ImageLabel", {
+        Name = "Vignette",
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        Image = "rbxassetid://4576475446",
+        ImageTransparency = 0.55,
+        ZIndex = 0,
+        Parent = parent,
+    })
+    AddCorner(vig, Theme.CornerRadius)
+    return vig
+end
+
 -------------------------------------------------
 -- ScreenGui
 -------------------------------------------------
+for _, g in CoreGui:GetChildren() do
+    if g.Name == "ScriptLib" then g:Destroy() end
+end
+
 local ScreenGui = Create("ScreenGui", {
-    Name = "MLib",
+    Name = "ScriptLib",
     ResetOnSpawn = false,
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
     Parent = (gethui and gethui()) or CoreGui,
@@ -99,74 +158,86 @@ local ScreenGui = Create("ScreenGui", {
 -------------------------------------------------
 -- CreateWindow
 -------------------------------------------------
-function MLib:CreateWindow(config)
+function ScriptLib:CreateWindow(config)
     config = config or {}
-    local Title = config.Title or "MLib"
-    local Size = config.Size or UDim2.fromOffset(520, 360)
-    local Position = config.Position or UDim2.fromOffset(120, 100)
+    local Title     = config.Title or "Script Lib"
+    local Size      = config.Size or UDim2.fromOffset(560, 400)
+    local Position  = config.Position or UDim2.fromOffset(100, 80)
+    local ToggleKey = config.ToggleKey or Enum.KeyCode.RightControl
 
     local Window = {
         Tabs = {},
         ActiveTab = nil,
-        Flags = MLib.Flags,
+        Flags = ScriptLib.Flags,
     }
 
-    -- Main floating window
+    -- Main frame
     local Main = Create("Frame", {
         Name = "Main",
         BackgroundColor3 = Theme.Background,
+        BackgroundTransparency = Theme.WindowTransparency,
         BorderSizePixel = 0,
         Position = Position,
         Size = Size,
         ClipsDescendants = true,
         Parent = ScreenGui,
     })
-    Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = Main })
-    Create("UIStroke", {
-        Color = Theme.Outline,
-        Thickness = 1,
-        Transparency = 0.4,
-        Parent = Main,
-    })
+    AddCorner(Main)
+    AddStroke(Main, 0.4)
+    AddNoise(Main)
+    AddVignette(Main)
+
+    -- Soft open animation
+    Main.Size = UDim2.fromOffset(Size.X.Offset * 0.92, Size.Y.Offset * 0.92)
+    Main.BackgroundTransparency = 1
+    Tween(Main, {
+        Size = Size,
+        BackgroundTransparency = Theme.WindowTransparency,
+    }, TweenInfoMed)
 
     -- Top bar
     local TopBar = Create("Frame", {
         Name = "TopBar",
         BackgroundColor3 = Theme.Secondary,
+        BackgroundTransparency = 0.2,
         BorderSizePixel = 0,
-        Size = UDim2.new(1, 0, 0, 34),
+        Size = UDim2.new(1, 0, 0, 38),
+        ZIndex = 5,
         Parent = Main,
     })
-    Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = TopBar })
-    Create("Frame", { -- cover bottom radius
+    AddCorner(TopBar)
+    Create("Frame", {
         BackgroundColor3 = Theme.Secondary,
+        BackgroundTransparency = 0.2,
         BorderSizePixel = 0,
-        Position = UDim2.new(0, 0, 1, -8),
-        Size = UDim2.new(1, 0, 0, 8),
+        Position = UDim2.new(0, 0, 1, -12),
+        Size = UDim2.new(1, 0, 0, 12),
+        ZIndex = 5,
         Parent = TopBar,
     })
 
     local TitleLabel = Create("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(12, 0),
+        Position = UDim2.fromOffset(14, 0),
         Size = UDim2.new(1, -50, 1, 0),
         Font = Enum.Font.GothamMedium,
         Text = Title,
         TextColor3 = Theme.Text,
         TextSize = 13,
         TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 6,
         Parent = TopBar,
     })
 
-    -- Close button
     local CloseBtn = Create("TextButton", {
         BackgroundTransparency = 1,
-        Position = UDim2.new(1, -28, 0.5, -9),
-        Size = UDim2.fromOffset(18, 18),
+        Position = UDim2.new(1, -32, 0.5, -10),
+        Size = UDim2.fromOffset(20, 20),
         Font = Enum.Font.GothamBold,
         Text = "×",
         TextColor3 = Theme.TextDim,
-        TextSize = 16,
+        TextSize = 18,
+        ZIndex = 6,
         Parent = TopBar,
     })
     CloseBtn.MouseEnter:Connect(function()
@@ -176,37 +247,44 @@ function MLib:CreateWindow(config)
         Tween(CloseBtn, { TextColor3 = Theme.TextDim })
     end)
     CloseBtn.MouseButton1Click:Connect(function()
-        Main.Visible = false
+        Tween(Main, {
+            Size = UDim2.fromOffset(Size.X.Offset * 0.92, Size.Y.Offset * 0.92),
+            BackgroundTransparency = 1,
+        }, TweenInfoMed)
+        task.delay(0.25, function()
+            Main.Visible = false
+            Main.Size = Size
+            Main.BackgroundTransparency = Theme.WindowTransparency
+        end)
     end)
 
     MakeDraggable(Main, TopBar)
 
-    -- Horizontal Tab Bar (under topbar)
+    -- Tab bar
     local TabBar = Create("Frame", {
-        Name = "TabBar",
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(0, 34),
-        Size = UDim2.new(1, 0, 0, 28),
+        Position = UDim2.fromOffset(0, 38),
+        Size = UDim2.new(1, 0, 0, 30),
+        ZIndex = 5,
         Parent = Main,
     })
-    local TabList = Create("UIListLayout", {
+    Create("UIListLayout", {
         FillDirection = Enum.FillDirection.Horizontal,
-        Padding = UDim.new(0, 2),
+        Padding = UDim.new(0, 4),
         SortOrder = Enum.SortOrder.LayoutOrder,
         Parent = TabBar,
     })
     Create("UIPadding", {
-        PaddingLeft = UDim.new(0, 8),
+        PaddingLeft = UDim.new(0, 10),
         PaddingTop = UDim.new(0, 4),
         Parent = TabBar,
     })
 
-    -- Content area
+    -- Content
     local Content = Create("Frame", {
-        Name = "Content",
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(0, 62),
-        Size = UDim2.new(1, 0, 1, -62),
+        Position = UDim2.fromOffset(0, 68),
+        Size = UDim2.new(1, 0, 1, -68),
         ClipsDescendants = true,
         Parent = Main,
     })
@@ -215,9 +293,7 @@ function MLib:CreateWindow(config)
     -- AddTab
     -------------------------------------------------
     function Window:AddTab(name)
-        local Tab = {
-            Name = name,
-        }
+        local Tab = { Name = name }
 
         local TabBtn = Create("TextButton", {
             BackgroundColor3 = Theme.Tertiary,
@@ -229,18 +305,21 @@ function MLib:CreateWindow(config)
             TextColor3 = Theme.TextDim,
             TextSize = 12,
             AutoButtonColor = false,
+            ZIndex = 6,
             Parent = TabBar,
         })
-        Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = TabBtn })
+        AddCorner(TabBtn, 6)
 
         local Indicator = Create("Frame", {
             BackgroundColor3 = Theme.Accent,
             BorderSizePixel = 0,
-            Position = UDim2.new(0, 0, 1, -2),
-            Size = UDim2.new(1, 0, 0, 2),
+            Position = UDim2.new(0, 4, 1, -2),
+            Size = UDim2.new(1, -8, 0, 2),
             Visible = false,
+            ZIndex = 7,
             Parent = TabBtn,
         })
+        AddCorner(Indicator, 2)
 
         local TabPage = Create("ScrollingFrame", {
             BackgroundTransparency = 1,
@@ -253,11 +332,10 @@ function MLib:CreateWindow(config)
             Parent = Content,
         })
 
-        -- Two columns
         local LeftCol = Create("Frame", {
             BackgroundTransparency = 1,
-            Position = UDim2.fromOffset(8, 6),
-            Size = UDim2.new(0.5, -12, 1, -12),
+            Position = UDim2.fromOffset(10, 8),
+            Size = UDim2.new(0.5, -14, 1, -16),
             Parent = TabPage,
         })
         local LeftLayout = Create("UIListLayout", {
@@ -268,8 +346,8 @@ function MLib:CreateWindow(config)
 
         local RightCol = Create("Frame", {
             BackgroundTransparency = 1,
-            Position = UDim2.new(0.5, 4, 0, 6),
-            Size = UDim2.new(0.5, -12, 1, -12),
+            Position = UDim2.new(0.5, 4, 0, 8),
+            Size = UDim2.new(0.5, -14, 1, -16),
             Parent = TabPage,
         })
         local RightLayout = Create("UIListLayout", {
@@ -280,7 +358,7 @@ function MLib:CreateWindow(config)
 
         local function UpdateCanvas()
             local h = math.max(LeftLayout.AbsoluteContentSize.Y, RightLayout.AbsoluteContentSize.Y)
-            TabPage.CanvasSize = UDim2.new(0, 0, 0, h + 16)
+            TabPage.CanvasSize = UDim2.new(0, 0, 0, h + 20)
         end
         LeftLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(UpdateCanvas)
         RightLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(UpdateCanvas)
@@ -288,13 +366,17 @@ function MLib:CreateWindow(config)
         function Tab:Show()
             if Window.ActiveTab then
                 Window.ActiveTab.Page.Visible = false
-                Window.ActiveTab.Button.BackgroundTransparency = 1
-                Window.ActiveTab.Button.TextColor3 = Theme.TextDim
+                Tween(Window.ActiveTab.Button, {
+                    BackgroundTransparency = 1,
+                    TextColor3 = Theme.TextDim,
+                })
                 Window.ActiveTab.Indicator.Visible = false
             end
             TabPage.Visible = true
-            TabBtn.BackgroundTransparency = 0
-            TabBtn.TextColor3 = Theme.Text
+            Tween(TabBtn, {
+                BackgroundTransparency = 0,
+                TextColor3 = Theme.Text,
+            })
             Indicator.Visible = true
             Window.ActiveTab = { Page = TabPage, Button = TabBtn, Indicator = Indicator }
         end
@@ -304,28 +386,24 @@ function MLib:CreateWindow(config)
         end)
 
         -------------------------------------------------
-        -- Groupbox factory
+        -- Groupbox
         -------------------------------------------------
         local function CreateGroupbox(side, name)
             local Holder = side == 1 and LeftCol or RightCol
 
             local Box = Create("Frame", {
                 BackgroundColor3 = Theme.Secondary,
+                BackgroundTransparency = 0.25,
                 BorderSizePixel = 0,
                 Size = UDim2.new(1, 0, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y,
                 Parent = Holder,
             })
-            Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = Box })
-            Create("UIStroke", {
-                Color = Theme.Outline,
-                Thickness = 1,
-                Transparency = 0.55,
-                Parent = Box,
-            })
+            AddCorner(Box, 10)
+            AddStroke(Box, 0.55)
+            AddNoise(Box)
 
-            -- Header
-            local Header = Create("TextLabel", {
+            Create("TextLabel", {
                 BackgroundTransparency = 1,
                 Size = UDim2.new(1, -16, 0, 26),
                 Position = UDim2.fromOffset(10, 2),
@@ -334,6 +412,7 @@ function MLib:CreateWindow(config)
                 TextColor3 = Theme.Text,
                 TextSize = 12,
                 TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex = 2,
                 Parent = Box,
             })
 
@@ -342,6 +421,7 @@ function MLib:CreateWindow(config)
                 Position = UDim2.fromOffset(8, 28),
                 Size = UDim2.new(1, -16, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y,
+                ZIndex = 2,
                 Parent = Box,
             })
             Create("UIListLayout", {
@@ -350,32 +430,32 @@ function MLib:CreateWindow(config)
                 Parent = Container,
             })
             Create("UIPadding", {
-                PaddingBottom = UDim.new(0, 8),
+                PaddingBottom = UDim.new(0, 10),
                 Parent = Container,
             })
 
             local Groupbox = { Container = Container }
 
-            -------------------------------------------------
-            -- Elements
-            -------------------------------------------------
+            -- AddLabel
             function Groupbox:AddLabel(text)
                 return Create("TextLabel", {
                     BackgroundTransparency = 1,
                     Size = UDim2.new(1, 0, 0, 16),
                     Font = Enum.Font.Gotham,
-                    Text = text,
+                    Text = tostring(text),
                     TextColor3 = Theme.TextDim,
                     TextSize = 11,
                     TextXAlignment = Enum.TextXAlignment.Left,
+                    TextWrapped = true,
                     Parent = Container,
                 })
             end
 
+            -- AddButton
             function Groupbox:AddButton(text, callback)
                 local Btn = Create("TextButton", {
                     BackgroundColor3 = Theme.Tertiary,
-                    Size = UDim2.new(1, 0, 0, 26),
+                    Size = UDim2.new(1, 0, 0, 28),
                     Font = Enum.Font.Gotham,
                     Text = text,
                     TextColor3 = Theme.Text,
@@ -383,7 +463,7 @@ function MLib:CreateWindow(config)
                     AutoButtonColor = false,
                     Parent = Container,
                 })
-                Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = Btn })
+                AddCorner(Btn, 7)
 
                 Btn.MouseEnter:Connect(function()
                     Tween(Btn, { BackgroundColor3 = Theme.Accent })
@@ -397,23 +477,24 @@ function MLib:CreateWindow(config)
                 return Btn
             end
 
+            -- AddToggle
             function Groupbox:AddToggle(flag, options)
                 options = options or {}
-                local Text = options.Text or flag or "Toggle"
-                local Default = options.Default or false
+                local Text     = options.Text or flag or "Toggle"
+                local Default  = options.Default == true
                 local Callback = options.Callback or function() end
 
-                MLib.Flags[flag] = Default
+                ScriptLib.Flags[flag] = Default
 
                 local Row = Create("Frame", {
                     BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, 22),
+                    Size = UDim2.new(1, 0, 0, 24),
                     Parent = Container,
                 })
 
                 Create("TextLabel", {
                     BackgroundTransparency = 1,
-                    Size = UDim2.new(1, -42, 1, 0),
+                    Size = UDim2.new(1, -44, 1, 0),
                     Font = Enum.Font.Gotham,
                     Text = Text,
                     TextColor3 = Theme.Text,
@@ -422,28 +503,27 @@ function MLib:CreateWindow(config)
                     Parent = Row,
                 })
 
-                -- Pill toggle (like screenshot)
                 local ToggleBg = Create("Frame", {
                     BackgroundColor3 = Default and Theme.ToggleOn or Theme.ToggleOff,
-                    Position = UDim2.new(1, -36, 0.5, -8),
-                    Size = UDim2.fromOffset(34, 16),
+                    Position = UDim2.new(1, -38, 0.5, -9),
+                    Size = UDim2.fromOffset(36, 18),
                     Parent = Row,
                 })
-                Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = ToggleBg })
+                AddCorner(ToggleBg, 99)
 
                 local Circle = Create("Frame", {
                     BackgroundColor3 = Color3.new(1, 1, 1),
-                    Position = Default and UDim2.new(1, -14, 0.5, -6) or UDim2.new(0, 2, 0.5, -6),
-                    Size = UDim2.fromOffset(12, 12),
+                    Position = Default and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7),
+                    Size = UDim2.fromOffset(14, 14),
                     Parent = ToggleBg,
                 })
-                Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = Circle })
+                AddCorner(Circle, 99)
 
                 local function Set(val)
-                    MLib.Flags[flag] = val
+                    ScriptLib.Flags[flag] = val
                     Tween(ToggleBg, { BackgroundColor3 = val and Theme.ToggleOn or Theme.ToggleOff })
                     Tween(Circle, {
-                        Position = val and UDim2.new(1, -14, 0.5, -6) or UDim2.new(0, 2, 0.5, -6)
+                        Position = val and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7),
                     })
                     Callback(val)
                 end
@@ -455,27 +535,28 @@ function MLib:CreateWindow(config)
                     Parent = Row,
                 })
                 Hit.MouseButton1Click:Connect(function()
-                    Set(not MLib.Flags[flag])
+                    Set(not ScriptLib.Flags[flag])
                 end)
 
-                return { Set = Set, Get = function() return MLib.Flags[flag] end }
+                return { Set = Set, Get = function() return ScriptLib.Flags[flag] end }
             end
 
+            -- AddSlider
             function Groupbox:AddSlider(flag, options)
                 options = options or {}
-                local Text = options.Text or flag or "Slider"
-                local Min = options.Min or 0
-                local Max = options.Max or 100
-                local Default = math.clamp(options.Default or Min, Min, Max)
+                local Text     = options.Text or flag or "Slider"
+                local Min      = options.Min or 0
+                local Max      = options.Max or 100
+                local Default  = math.clamp(options.Default or Min, Min, Max)
                 local Rounding = options.Rounding or 0
-                local Suffix = options.Suffix or ""
+                local Suffix   = options.Suffix or ""
                 local Callback = options.Callback or function() end
 
-                MLib.Flags[flag] = Default
+                ScriptLib.Flags[flag] = Default
 
                 local Row = Create("Frame", {
                     BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, 36),
+                    Size = UDim2.new(1, 0, 0, 38),
                     Parent = Container,
                 })
 
@@ -504,67 +585,74 @@ function MLib:CreateWindow(config)
 
                 local BarBg = Create("Frame", {
                     BackgroundColor3 = Theme.SliderBg,
-                    Position = UDim2.fromOffset(0, 20),
-                    Size = UDim2.new(1, 0, 0, 5),
+                    Position = UDim2.fromOffset(0, 22),
+                    Size = UDim2.new(1, 0, 0, 6),
                     Parent = Row,
                 })
-                Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = BarBg })
+                AddCorner(BarBg, 99)
 
                 local Fill = Create("Frame", {
                     BackgroundColor3 = Theme.Accent,
                     Size = UDim2.new((Default - Min) / math.max(Max - Min, 1), 0, 1, 0),
                     Parent = BarBg,
                 })
-                Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = Fill })
+                AddCorner(Fill, 99)
 
                 local dragging = false
                 local function Update(val)
                     val = math.clamp(val, Min, Max)
                     val = Round(val, Rounding)
-                    MLib.Flags[flag] = val
+                    ScriptLib.Flags[flag] = val
                     local pct = (val - Min) / math.max(Max - Min, 1)
-                    Fill.Size = UDim2.new(pct, 0, 1, 0)
+                    Tween(Fill, { Size = UDim2.new(pct, 0, 1, 0) })
                     ValueLabel.Text = tostring(val) .. Suffix
                     Callback(val)
                 end
 
                 local function fromInput(input)
-                    local rel = math.clamp((input.Position.X - BarBg.AbsolutePosition.X) / BarBg.AbsoluteSize.X, 0, 1)
+                    local rel = math.clamp(
+                        (input.Position.X - BarBg.AbsolutePosition.X) / BarBg.AbsoluteSize.X,
+                        0, 1
+                    )
                     Update(Min + (Max - Min) * rel)
                 end
 
                 BarBg.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    if input.UserInputType == Enum.UserInputType.MouseButton1
+                    or input.UserInputType == Enum.UserInputType.Touch then
                         dragging = true
                         fromInput(input)
                     end
                 end)
                 UserInputService.InputEnded:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    if input.UserInputType == Enum.UserInputType.MouseButton1
+                    or input.UserInputType == Enum.UserInputType.Touch then
                         dragging = false
                     end
                 end)
                 UserInputService.InputChanged:Connect(function(input)
-                    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+                    or input.UserInputType == Enum.UserInputType.Touch) then
                         fromInput(input)
                     end
                 end)
 
-                return { Set = Update, Get = function() return MLib.Flags[flag] end }
+                return { Set = Update, Get = function() return ScriptLib.Flags[flag] end }
             end
 
+            -- AddDropdown
             function Groupbox:AddDropdown(flag, options)
                 options = options or {}
-                local Text = options.Text or flag or "Dropdown"
-                local Values = options.Values or { "Option 1" }
-                local Default = options.Default or Values[1]
+                local Text     = options.Text or flag or "Dropdown"
+                local Values   = options.Values or { "Option 1" }
+                local Default  = options.Default or Values[1]
                 local Callback = options.Callback or function() end
 
-                MLib.Flags[flag] = Default
+                ScriptLib.Flags[flag] = Default
 
                 local Row = Create("Frame", {
                     BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, 44),
+                    Size = UDim2.new(1, 0, 0, 46),
                     Parent = Container,
                 })
 
@@ -582,7 +670,7 @@ function MLib:CreateWindow(config)
                 local DropBtn = Create("TextButton", {
                     BackgroundColor3 = Theme.Tertiary,
                     Position = UDim2.fromOffset(0, 18),
-                    Size = UDim2.new(1, 0, 0, 24),
+                    Size = UDim2.new(1, 0, 0, 26),
                     Font = Enum.Font.Gotham,
                     Text = "  " .. tostring(Default) .. "  ▼",
                     TextColor3 = Theme.Text,
@@ -591,37 +679,43 @@ function MLib:CreateWindow(config)
                     AutoButtonColor = false,
                     Parent = Row,
                 })
-                Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = DropBtn })
+                AddCorner(DropBtn, 7)
 
                 local Open = false
                 local ListFrame = Create("Frame", {
                     BackgroundColor3 = Theme.Secondary,
-                    Position = UDim2.new(0, 0, 1, 3),
+                    BackgroundTransparency = 0.05,
+                    Position = UDim2.new(0, 0, 1, 4),
                     Size = UDim2.new(1, 0, 0, 0),
                     Visible = false,
-                    ZIndex = 40,
+                    ZIndex = 60,
                     Parent = DropBtn,
                 })
-                Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = ListFrame })
-                Create("UIStroke", { Color = Theme.Outline, Thickness = 1, Parent = ListFrame })
-                Create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Parent = ListFrame })
+                AddCorner(ListFrame, 8)
+                AddStroke(ListFrame, 0.35)
+                Create("UIListLayout", {
+                    SortOrder = Enum.SortOrder.LayoutOrder,
+                    Parent = ListFrame,
+                })
 
                 local function Close()
                     Open = false
-                    ListFrame.Visible = false
-                    ListFrame.Size = UDim2.new(1, 0, 0, 0)
+                    Tween(ListFrame, { Size = UDim2.new(1, 0, 0, 0) })
+                    task.delay(0.15, function()
+                        if not Open then ListFrame.Visible = false end
+                    end)
                 end
 
                 for _, val in ipairs(Values) do
                     local Opt = Create("TextButton", {
                         BackgroundTransparency = 1,
-                        Size = UDim2.new(1, 0, 0, 22),
+                        Size = UDim2.new(1, 0, 0, 24),
                         Font = Enum.Font.Gotham,
                         Text = "  " .. tostring(val),
                         TextColor3 = Theme.Text,
                         TextSize = 11,
                         TextXAlignment = Enum.TextXAlignment.Left,
-                        ZIndex = 41,
+                        ZIndex = 61,
                         Parent = ListFrame,
                     })
                     Opt.MouseEnter:Connect(function()
@@ -632,7 +726,7 @@ function MLib:CreateWindow(config)
                         Opt.BackgroundTransparency = 1
                     end)
                     Opt.MouseButton1Click:Connect(function()
-                        MLib.Flags[flag] = val
+                        ScriptLib.Flags[flag] = val
                         DropBtn.Text = "  " .. tostring(val) .. "  ▼"
                         Callback(val)
                         Close()
@@ -645,32 +739,33 @@ function MLib:CreateWindow(config)
                     else
                         Open = true
                         ListFrame.Visible = true
-                        ListFrame.Size = UDim2.new(1, 0, 0, #Values * 22)
+                        Tween(ListFrame, { Size = UDim2.new(1, 0, 0, #Values * 24) })
                     end
                 end)
 
                 return {
                     Set = function(v)
-                        MLib.Flags[flag] = v
+                        ScriptLib.Flags[flag] = v
                         DropBtn.Text = "  " .. tostring(v) .. "  ▼"
                         Callback(v)
                     end,
-                    Get = function() return MLib.Flags[flag] end,
+                    Get = function() return ScriptLib.Flags[flag] end,
                 }
             end
 
+            -- AddInput
             function Groupbox:AddInput(flag, options)
                 options = options or {}
-                local Text = options.Text or flag or "Input"
-                local Default = options.Default or ""
+                local Text        = options.Text or flag or "Input"
+                local Default     = options.Default or ""
                 local Placeholder = options.Placeholder or ""
-                local Callback = options.Callback or function() end
+                local Callback    = options.Callback or function() end
 
-                MLib.Flags[flag] = Default
+                ScriptLib.Flags[flag] = Default
 
                 local Row = Create("Frame", {
                     BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, 44),
+                    Size = UDim2.new(1, 0, 0, 46),
                     Parent = Container,
                 })
 
@@ -688,7 +783,7 @@ function MLib:CreateWindow(config)
                 local Box = Create("TextBox", {
                     BackgroundColor3 = Theme.Tertiary,
                     Position = UDim2.fromOffset(0, 18),
-                    Size = UDim2.new(1, 0, 0, 24),
+                    Size = UDim2.new(1, 0, 0, 26),
                     Font = Enum.Font.Gotham,
                     Text = Default,
                     PlaceholderText = Placeholder,
@@ -698,7 +793,7 @@ function MLib:CreateWindow(config)
                     ClearTextOnFocus = false,
                     Parent = Row,
                 })
-                Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = Box })
+                AddCorner(Box, 7)
                 Create("UIPadding", {
                     PaddingLeft = UDim.new(0, 8),
                     PaddingRight = UDim.new(0, 8),
@@ -706,23 +801,25 @@ function MLib:CreateWindow(config)
                 })
 
                 Box.FocusLost:Connect(function()
-                    MLib.Flags[flag] = Box.Text
+                    ScriptLib.Flags[flag] = Box.Text
                     Callback(Box.Text)
                 end)
 
                 return {
                     Set = function(v)
                         Box.Text = tostring(v)
-                        MLib.Flags[flag] = v
+                        ScriptLib.Flags[flag] = v
                         Callback(v)
                     end,
-                    Get = function() return MLib.Flags[flag] end,
+                    Get = function() return ScriptLib.Flags[flag] end,
                 }
             end
 
+            -- AddDivider
             function Groupbox:AddDivider()
                 Create("Frame", {
                     BackgroundColor3 = Theme.Outline,
+                    BackgroundTransparency = 0.4,
                     BorderSizePixel = 0,
                     Size = UDim2.new(1, 0, 0, 1),
                     Parent = Container,
@@ -732,36 +829,33 @@ function MLib:CreateWindow(config)
             return Groupbox
         end
 
-        function Tab:AddLeftGroupbox(name)
-            return CreateGroupbox(1, name)
-        end
-
-        function Tab:AddRightGroupbox(name)
-            return CreateGroupbox(2, name)
-        end
-
-        function Tab:AddGroupbox(name, side)
-            return CreateGroupbox(side or 1, name)
-        end
+        function Tab:AddLeftGroupbox(name)  return CreateGroupbox(1, name) end
+        function Tab:AddRightGroupbox(name) return CreateGroupbox(2, name) end
+        function Tab:AddGroupbox(name, side) return CreateGroupbox(side or 1, name) end
 
         table.insert(Window.Tabs, Tab)
-        if not Window.ActiveTab then
-            Tab:Show()
-        end
-
+        if not Window.ActiveTab then Tab:Show() end
         return Tab
     end
 
-    function Window:SetTitle(t)
-        TitleLabel.Text = t
+    function Window:SetTitle(t) TitleLabel.Text = t end
+
+    function Window:Toggle(state)
+        if typeof(state) == "boolean" then
+            Main.Visible = state
+        else
+            Main.Visible = not Main.Visible
+        end
+        if Main.Visible then
+            Main.Size = UDim2.fromOffset(Size.X.Offset * 0.92, Size.Y.Offset * 0.92)
+            Main.BackgroundTransparency = 1
+            Tween(Main, {
+                Size = Size,
+                BackgroundTransparency = Theme.WindowTransparency,
+            }, TweenInfoMed)
+        end
     end
 
-    function Window:Toggle()
-        Main.Visible = not Main.Visible
-    end
-
-    -- Toggle key
-    local ToggleKey = config.ToggleKey or Enum.KeyCode.RightControl
     UserInputService.InputBegan:Connect(function(input, gpe)
         if gpe then return end
         if input.KeyCode == ToggleKey then
@@ -775,48 +869,54 @@ end
 -------------------------------------------------
 -- Notify
 -------------------------------------------------
-function MLib:Notify(title, text, duration)
+function ScriptLib:Notify(title, text, duration)
     duration = duration or 3
+
     local Notif = Create("Frame", {
         BackgroundColor3 = Theme.Secondary,
+        BackgroundTransparency = 0.1,
         BorderSizePixel = 0,
-        Position = UDim2.new(1, 20, 1, -80),
-        Size = UDim2.fromOffset(250, 56),
+        Position = UDim2.new(1, 20, 1, -90),
+        Size = UDim2.fromOffset(270, 60),
         Parent = ScreenGui,
     })
-    Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = Notif })
-    Create("UIStroke", { Color = Theme.Outline, Thickness = 1, Parent = Notif })
+    AddCorner(Notif, 10)
+    AddStroke(Notif, 0.4)
+    AddNoise(Notif)
 
     Create("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(12, 8),
-        Size = UDim2.new(1, -24, 0, 16),
+        Position = UDim2.fromOffset(14, 10),
+        Size = UDim2.new(1, -28, 0, 16),
         Font = Enum.Font.GothamMedium,
         Text = title or "Notification",
         TextColor3 = Theme.Text,
         TextSize = 12,
         TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 2,
         Parent = Notif,
     })
     Create("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(12, 26),
-        Size = UDim2.new(1, -24, 0, 22),
+        Position = UDim2.fromOffset(14, 28),
+        Size = UDim2.new(1, -28, 0, 24),
         Font = Enum.Font.Gotham,
         Text = text or "",
         TextColor3 = Theme.TextDim,
         TextSize = 11,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextWrapped = true,
+        ZIndex = 2,
         Parent = Notif,
     })
 
-    Tween(Notif, { Position = UDim2.new(1, -270, 1, -80) }, 0.25)
+    Tween(Notif, { Position = UDim2.new(1, -290, 1, -90) }, TweenInfoMed)
     task.delay(duration, function()
-        local tw = Tween(Notif, { Position = UDim2.new(1, 20, 1, -80) }, 0.25)
+        local tw = Tween(Notif, { Position = UDim2.new(1, 20, 1, -90) }, TweenInfoMed)
         tw.Completed:Wait()
         Notif:Destroy()
     end)
 end
 
-return MLib
+getgenv().ScriptLib = ScriptLib
+return ScriptLib
