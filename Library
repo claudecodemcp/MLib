@@ -4,7 +4,7 @@ local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 
 local Library = {
-    _version = "2.1",
+    _version = "2.2",
     Flags = {},
     Options = {},
     Windows = {},
@@ -13,6 +13,7 @@ local Library = {
     _dropdowns = {},
     _listening = false,
     _notifViewer = nil,
+    IconCache = {},
     Theme = {
         Bg = Color3.fromRGB(18, 18, 18),
         Panel = Color3.fromRGB(24, 24, 24),
@@ -145,36 +146,109 @@ local function emit(obj, options, ...)
     end
 end
 
-local IconLib
-pcall(function()
-    IconLib = loadstring(game:HttpGet(
-        "https://raw.githubusercontent.com/deividcomsono/lucide-roblox-direct/refs/heads/main/source.lua"
-    ))()
-end)
+local IconLib = nil
+
+local function ensureIconLib()
+    if IconLib then return true end
+    pcall(function()
+        IconLib = loadstring(game:HttpGet(
+            "https://raw.githubusercontent.com/deividcomsono/lucide-roblox-direct/refs/heads/main/source.lua"
+        ))()
+    end)
+    return IconLib ~= nil
+end
+
+pcall(ensureIconLib)
+
+local function iconFileNameFor(url)
+    local hash = 5381
+    for i = 1, #url do
+        hash = ((hash * 33) + string.byte(url, i)) % 4294967291
+    end
+    local ext = url:match("%.(%w+)%??") or url:match("%.(%w+)$") or "png"
+    return tostring(hash) .. "." .. ext
+end
+
+local function downloadIcon(url)
+    if writeassetfile then
+        if isfolder and not isfolder("UILib") then pcall(makefolder, "UILib") end
+        if isfolder and not isfolder("UILib/icons") then pcall(makefolder, "UILib/icons") end
+        local path = "UILib/icons/" .. iconFileNameFor(url)
+        if isfile and isfile(path) then
+            local ok, asset = pcall(writeassetfile, path)
+            if ok and asset then return asset end
+        end
+        local ok, data = pcall(function() return game:HttpGet(url) end)
+        if ok and data and #data > 0 then
+            local ok2, asset = pcall(writeassetfile, path, data)
+            if ok2 and asset then return asset end
+        end
+    end
+
+    if writefile and getcustomasset and isfolder and makefolder then
+        if not isfolder("UILib") then pcall(makefolder, "UILib") end
+        if not isfolder("UILib/icons") then pcall(makefolder, "UILib/icons") end
+        local path = "UILib/icons/" .. iconFileNameFor(url)
+        if isfile and isfile(path) then
+            local ok, asset = pcall(getcustomasset, path)
+            if ok and asset then return asset end
+        end
+        local ok, data = pcall(function() return game:HttpGet(url) end)
+        if ok and data and #data > 0 then
+            pcall(writefile, path, data)
+            local ok2, asset = pcall(getcustomasset, path)
+            if ok2 and asset then return asset end
+        end
+    end
+
+    return nil
+end
 
 local function ResolveImage(name)
-    if type(name) == "number" then return "rbxassetid://" .. tostring(name), nil, nil end
+    if not name or name == "" then return nil end
+
+    local cached = Library.IconCache[name]
+    if cached ~= nil then
+        return cached.url, cached.offset, cached.size
+    end
+
+    if type(name) == "number" then
+        local url = "rbxassetid://" .. tostring(name)
+        Library.IconCache[name] = { url = url }
+        return url, nil, nil
+    end
+
     if type(name) ~= "string" then return nil end
-    if name:match("^rbxassetid://") or name:match("^rbxasset://") then return name, nil, nil end
-    if name:match("^https?://") then
-        if writefile and getcustomasset and isfolder and makefolder then
-            local folder = "UILib/assets"
-            if not isfolder(folder) then pcall(makefolder, folder) end
-            local filename = folder .. "/" .. HttpService:GenerateGUID(false) .. ".png"
-            local ok, data = pcall(game.HttpGet, game, name)
-            if ok and data then
-                pcall(writefile, filename, data)
-                local ok2, asset = pcall(getcustomasset, filename)
-                if ok2 and asset then return asset, nil, nil end
-            end
-        end
+
+    if name:match("^rbxassetid://")
+        or name:match("^rbxasset://")
+        or name:match("^rbxthumb://")
+        or name:match("^synasset://")
+        or name:match("^assetdelivery://") then
+        Library.IconCache[name] = { url = name }
         return name, nil, nil
     end
-    if IconLib then
+
+    if name:match("^https?://") then
+        local asset = downloadIcon(name)
+        Library.IconCache[name] = { url = asset }
+        return asset, nil, nil
+    end
+
+    if ensureIconLib() then
         local clean = name:gsub("^lucide[%-:]", "")
         local ok, res = pcall(function() return IconLib.GetAsset(clean) end)
-        if ok and res then return res.Url, res.ImageRectOffset, res.ImageRectSize end
+        if ok and res and res.Url then
+            Library.IconCache[name] = {
+                url = res.Url,
+                offset = res.ImageRectOffset,
+                size = res.ImageRectSize,
+            }
+            return res.Url, res.ImageRectOffset, res.ImageRectSize
+        end
     end
+
+    Library.IconCache[name] = { url = nil }
     return nil
 end
 
@@ -190,6 +264,11 @@ function Library:ApplyIcon(img, name)
     end
     img.Visible = false
     return false
+end
+
+function Library:IconPreview(name)
+    local url = ResolveImage(name)
+    return url ~= nil
 end
 
 Library._activeToasts = Library._activeToasts or {}
@@ -886,14 +965,16 @@ function Library:AddWindow(cfg)
     local titleLayout = List(titlePill, 8, Enum.FillDirection.Horizontal)
     titleLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 
-    if cfg.Icon then
+    if cfg.Icon and cfg.Icon ~= "" then
         local iconImg = New("ImageLabel", {
             BackgroundTransparency = 1,
             Size = UDim2.fromOffset(18, 18),
             ImageColor3 = T.Text,
             LayoutOrder = 1,
         }, titlePill)
-        Library:ApplyIcon(iconImg, cfg.Icon)
+        if not Library:ApplyIcon(iconImg, cfg.Icon) then
+            iconImg:Destroy()
+        end
     end
 
     local titleTxt = Label(titlePill, Win.Title, 15, T.Text, Enum.Font.GothamBold)
@@ -1122,8 +1203,11 @@ function Library:AddWindow(cfg)
                     Size = UDim2.fromOffset(18, 18),
                     ImageColor3 = T.Text,
                 }, header)
-                Library:ApplyIcon(iconImg, icon)
-                iconOffset = 42
+                if Library:ApplyIcon(iconImg, icon) then
+                    iconOffset = 42
+                else
+                    iconImg:Destroy()
+                end
             end
 
             local titleLabel = Label(header, title, 14, T.Text, Enum.Font.GothamMedium)
@@ -1216,8 +1300,11 @@ function Library:AddWindow(cfg)
                         Size = UDim2.fromOffset(14, 14),
                         ImageColor3 = T.SubText,
                     }, btnContent)
-                    Library:ApplyIcon(ic, icon)
-                    SubTab.Icon = ic
+                    if Library:ApplyIcon(ic, icon) then
+                        SubTab.Icon = ic
+                    else
+                        ic:Destroy()
+                    end
                 end
 
                 local lbl = Label(btnContent, name, 12, T.SubText)
