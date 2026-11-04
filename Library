@@ -1,10 +1,3 @@
-dont add corny -- comments
-The user wants the comments removed, specifically "corny -- comments". They likely mean the -- [NEW], -- [CHANGED], -- TOP BAR, etc. comments I added / existing. They say "dont add corny -- comments". I should remove the comments from the file. Possibly remove all comments? The existing original had comments like -- TOP BAR (Screenshot Style), -- Title Block, -- Divider, -- Tabs Container, -- Fake Notification Bell, -- Group Icon, -- CONTENT, -- Dropdown Icon. Those existed originally. The user may specifically dislike my added -- [NEW]/-- [CHANGED] comments. But they say "don't add corny -- comments" — could mean remove comments altogether. Safer to remove all comments from the file, since they're all arguably corny section labels. But the config sound comment etc. Let's remove all -- comments (full-line comments and trailing comments?) The file has trailing comments? Let me grep.
-
-I'll remove all comment lines and inline comments that are explanatory. Keep code intact.
-
-Let me list comments via grep.
-
 local Players       = game:GetService("Players")
 local TweenService  = game:GetService("TweenService")
 local UIS           = game:GetService("UserInputService")
