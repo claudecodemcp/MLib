@@ -138,6 +138,26 @@ local function RowHover(row, baseColor)
     end)
 end
 
+-- ── Callback helpers ───────────────────────────────────────
+local function attachCallbackSupport(obj)
+    obj._listeners = obj._listeners or {}
+    function obj:OnChanged(fn)
+        table.insert(self._listeners, fn)
+        return self
+    end
+    return obj
+end
+
+local function emit(obj, o, ...)
+    if o and o.Callback then
+        task.spawn(o.Callback, ...)
+    end
+    for _, fn in ipairs(obj._listeners or {}) do
+        task.spawn(fn, ...)
+    end
+end
+
+-- ── Icon resolution ────────────────────────────────────────
 local IconLib
 pcall(function()
     IconLib = loadstring(game:HttpGet(
@@ -199,6 +219,7 @@ function Library:ApplyIcon(img, name)
     return false
 end
 
+-- ── Notifications ──────────────────────────────────────────
 Library._activeToasts = Library._activeToasts or {}
 
 local function layoutToasts()
@@ -448,6 +469,7 @@ local function CreateNotifViewer(parentGui)
     return Library._notifViewer
 end
 
+-- ── Elements ───────────────────────────────────────────────
 local function BuildElements(holder, reg, fire)
     local api = {}
 
@@ -459,10 +481,14 @@ local function BuildElements(holder, reg, fire)
         Pad(l, 4, 2, 4, 2)
         return {
             SetText = function(_, new) l.Text = new end,
+            OnChanged = function(self) return self end,
         }
     end
 
     function api:AddButton(text, callback)
+        local obj = { Type = "Button" }
+        attachCallbackSupport(obj)
+
         local b = New("TextButton", {
             Text             = text,
             Font             = Enum.Font.GothamMedium,
@@ -480,15 +506,23 @@ local function BuildElements(holder, reg, fire)
         Connect(b.MouseLeave, function()
             Tween(b, 0.12, { BackgroundColor3 = T.Element })
         end)
-        Connect(b.MouseButton1Click, function()
-            fire(callback)
-        end)
-        return b
+
+        local function emitClick()
+            if callback then task.spawn(callback) end
+            for _, fn in ipairs(obj._listeners) do task.spawn(fn) end
+        end
+
+        Connect(b.MouseButton1Click, emitClick)
+
+        function obj:Press() emitClick() end
+        obj.Button = b
+        return obj
     end
 
     function api:AddToggle(idx, o)
         o = o or {}
         local obj = { Value = o.Default or false, Type = "Toggle" }
+        attachCallbackSupport(obj)
 
         local row = New("TextButton", {
             Text                   = "",
@@ -532,7 +566,7 @@ local function BuildElements(holder, reg, fire)
                 Tween(box, 0.15, { BackgroundColor3 = Color3.fromRGB(16, 16, 16) })
                 Tween(check, 0.15, { ImageTransparency = 1 })
             end
-            if not silent then fire(o.Callback, obj.Value) end
+            if not silent then emit(obj, o, obj.Value) end
         end
 
         Connect(row.MouseButton1Click, function()
@@ -547,6 +581,7 @@ local function BuildElements(holder, reg, fire)
         o = o or {}
         local min, max, rnd = o.Min or 0, o.Max or 100, o.Rounding or 0
         local obj = { Value = math.clamp(o.Default or min, min, max), Type = "Slider" }
+        attachCallbackSupport(obj)
 
         local row = New("Frame", {
             Size                   = UDim2.new(1, 0, 0, 50),
@@ -599,7 +634,7 @@ local function BuildElements(holder, reg, fire)
             Tween(fill, 0.1, { Size = UDim2.fromScale(alpha, 1) })
             Tween(knob, 0.1, { Position = UDim2.new(alpha, 0, 0.5, 0) })
             valLabel.Text = tostring(v) .. (o.Suffix or "")
-            if not silent then fire(o.Callback, v) end
+            if not silent then emit(obj, o, v) end
         end
 
         local dragging = false
@@ -635,10 +670,9 @@ local function BuildElements(holder, reg, fire)
             Type   = "Dropdown",
             Values = values,
         }
+        attachCallbackSupport(obj)
         if o.Multi and type(o.Default) == "table" then
-            for _, v in ipairs(o.Default) do
-                obj.Value[v] = true
-            end
+            for _, v in ipairs(o.Default) do obj.Value[v] = true end
         end
 
         local row = New("Frame", {
@@ -650,7 +684,6 @@ local function BuildElements(holder, reg, fire)
         local headWrap = New("Frame", {
             Size             = UDim2.new(1, 0, 0, 36),
             BackgroundColor3 = T.Stroke,
-            BorderSizePixel  = 0,
             ClipsDescendants = true,
         }, row)
         Corner(headWrap, 6)
@@ -660,7 +693,6 @@ local function BuildElements(holder, reg, fire)
             Size             = UDim2.new(1, -2, 1, -2),
             Position         = UDim2.fromOffset(1, 1),
             BackgroundColor3 = T.Element,
-            BorderSizePixel  = 0,
             AutoButtonColor  = false,
             ClipsDescendants = true,
         }, headWrap)
@@ -689,14 +721,12 @@ local function BuildElements(holder, reg, fire)
             Position               = UDim2.new(1, -10, 0.5, 0),
             Size                   = UDim2.fromOffset(16, 16),
             ImageColor3            = T.SubText,
-            BorderSizePixel        = 0,
         }, head)
         Library:ApplyIcon(arrow, "chevron-down")
 
         local listWrap = New("Frame", {
             Size             = UDim2.new(1, 0, 0, 0),
             BackgroundColor3 = T.Stroke,
-            BorderSizePixel  = 0,
             ClipsDescendants = true,
             Visible          = false,
             LayoutOrder      = 2,
@@ -707,7 +737,6 @@ local function BuildElements(holder, reg, fire)
             Size                 = UDim2.new(1, -2, 1, -2),
             Position             = UDim2.fromOffset(1, 1),
             BackgroundColor3     = T.Group,
-            BorderSizePixel      = 0,
             ScrollBarThickness   = 3,
             ScrollBarImageColor3 = Color3.fromRGB(70, 70, 70),
             CanvasSize           = UDim2.new(),
@@ -724,13 +753,8 @@ local function BuildElements(holder, reg, fire)
 
         local function computeListHeight()
             local count = #obj.Values
-            local itemH = 28
-            local spacing = 3
-            local padTotal = 10
-            local h = count * itemH + math.max(0, count - 1) * spacing + padTotal
-            if h > 220 then h = 220 end
-            if h < 32 then h = 32 end
-            return h
+            local h = count * 28 + math.max(0, count - 1) * 3 + 10
+            return math.clamp(h, 32, 220)
         end
 
         function state.close()
@@ -751,13 +775,22 @@ local function BuildElements(holder, reg, fire)
 
         local function getText()
             if o.Multi then
-                local selected = {}
+                local sel = {}
                 for _, v in ipairs(obj.Values) do
-                    if obj.Value[v] then table.insert(selected, v) end
+                    if obj.Value[v] then table.insert(sel, v) end
                 end
-                return #selected > 0 and table.concat(selected, ", ") or "None"
+                return #sel > 0 and table.concat(sel, ", ") or "None"
             end
             return tostring(obj.Value or "None")
+        end
+
+        local function snapshotValue()
+            if not o.Multi then return obj.Value end
+            local copy = {}
+            for k, on in pairs(obj.Value) do
+                if on then copy[k] = true end
+            end
+            return copy
         end
 
         local function refresh()
@@ -781,7 +814,6 @@ local function BuildElements(holder, reg, fire)
                     Size                   = UDim2.new(1, 0, 0, 28),
                     BackgroundColor3       = T.Element,
                     BackgroundTransparency = 1,
-                    BorderSizePixel        = 0,
                     AutoButtonColor        = false,
                     ClipsDescendants       = true,
                     LayoutOrder            = i,
@@ -801,7 +833,7 @@ local function BuildElements(holder, reg, fire)
                         state.close()
                     end
                     refresh()
-                    fire(o.Callback, obj.Value)
+                    emit(obj, o, snapshotValue())
                 end)
                 items[v] = b
             end
@@ -825,13 +857,18 @@ local function BuildElements(holder, reg, fire)
             end
             build()
         end
+
         function obj:SetValue(v, silent)
             if o.Multi then
                 obj.Value = {}
                 if type(v) == "table" then
                     for k, on in pairs(v) do
                         if on then
-                            obj.Value[type(k) == "number" and on or k] = true
+                            if type(k) == "number" then
+                                obj.Value[on] = true
+                            else
+                                obj.Value[k] = true
+                            end
                         end
                     end
                 end
@@ -839,7 +876,7 @@ local function BuildElements(holder, reg, fire)
                 obj.Value = v
             end
             refresh()
-            if not silent then fire(o.Callback, obj.Value) end
+            if not silent then emit(obj, o, snapshotValue()) end
         end
 
         Connect(head.MouseButton1Click, function()
@@ -863,9 +900,156 @@ local function BuildElements(holder, reg, fire)
         return obj
     end
 
+    function api:AddKeybind(idx, o)
+        o = o or {}
+        local obj = { Value = o.Default or Enum.KeyCode.Unknown, Type = "Keybind" }
+        attachCallbackSupport(obj)
+
+        local row = New("TextButton", {
+            Text                   = "",
+            Size                   = UDim2.new(1, 0, 0, 36),
+            BackgroundColor3       = T.Group,
+            BackgroundTransparency = 1,
+            AutoButtonColor        = false,
+        }, holder)
+        RowHover(row)
+
+        local l = Label(row, o.Text or idx, 13, T.Text)
+        l.Position = UDim2.fromOffset(6, 0)
+        l.Size     = UDim2.new(0.55, 0, 1, 0)
+
+        local keyBtn = New("TextButton", {
+            AnchorPoint      = Vector2.new(1, 0.5),
+            Position         = UDim2.new(1, -8, 0.5, 0),
+            Size             = UDim2.fromOffset(96, 24),
+            BackgroundColor3 = T.Element,
+            Text             = "None",
+            TextSize         = 12,
+            TextColor3       = T.SubText,
+            Font             = Enum.Font.GothamMedium,
+            AutoButtonColor  = false,
+        }, row)
+        Corner(keyBtn, 5)
+        Stroke(keyBtn, T.Stroke, 0.5)
+
+        local listening = false
+
+        function obj:SetValue(v, silent)
+            obj.Value = v
+            Library.Flags[idx] = v
+            if typeof(v) == "EnumItem" then
+                keyBtn.Text = (v == Enum.KeyCode.Unknown) and "None" or v.Name
+                keyBtn.TextColor3 = (v == Enum.KeyCode.Unknown) and T.SubText or T.Text
+            else
+                keyBtn.Text = tostring(v)
+                keyBtn.TextColor3 = T.Text
+            end
+            if not silent then emit(obj, o, v) end
+        end
+
+        Connect(keyBtn.MouseButton1Click, function()
+            listening = true
+            Library._listening = true
+            keyBtn.Text = "..."
+            keyBtn.TextColor3 = T.Accent
+        end)
+
+        Connect(UIS.InputBegan, function(input, gameProcessed)
+            if not listening then return end
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+            if input.KeyCode == Enum.KeyCode.Escape then
+                listening = false
+                Library._listening = false
+                obj:SetValue(obj.Value, true) -- reset display
+                return
+            end
+
+            if gameProcessed then return end
+
+            listening = false
+            Library._listening = false
+            obj:SetValue(input.KeyCode)
+        end)
+
+        -- Global key press detection (fires OnPressed if set)
+        Connect(UIS.InputBegan, function(input, gameProcessed)
+            if gameProcessed or listening or Library._listening then return end
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+            if obj.Value == Enum.KeyCode.Unknown then return end
+            if input.KeyCode == obj.Value then
+                if o.OnPressed then task.spawn(o.OnPressed) end
+            end
+        end)
+
+        reg(idx, obj)
+        obj:SetValue(obj.Value, true)
+        return obj
+    end
+
+    function api:AddInput(idx, o)
+        o = o or {}
+        local obj = { Value = tostring(o.Default or ""), Type = "Input" }
+        attachCallbackSupport(obj)
+
+        local row = New("Frame", {
+            Size          = UDim2.new(1, 0, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y,
+        }, holder)
+        List(row, 4)
+
+        local titleLbl = Label(row, o.Text or idx, 13, T.Text)
+        titleLbl.Size = UDim2.new(1, 0, 0, 16)
+        titleLbl.LayoutOrder = 1
+
+        local inputWrap = New("Frame", {
+            Size             = UDim2.new(1, 0, 0, 34),
+            BackgroundColor3 = T.Element,
+            ClipsDescendants = true,
+            LayoutOrder      = 2,
+        }, row)
+        Corner(inputWrap, 6)
+        Stroke(inputWrap, T.Stroke, 0.55)
+
+        local box = New("TextBox", {
+            BackgroundTransparency = 1,
+            Size                   = UDim2.fromScale(1, 1),
+            Text                   = obj.Value,
+            PlaceholderText        = o.Placeholder or "Type here...",
+            PlaceholderColor3      = T.SubText,
+            TextColor3             = T.Text,
+            TextSize               = 13,
+            Font                   = Enum.Font.Gotham,
+            ClearTextOnFocus       = false,
+            BorderSizePixel        = 0,
+            TextXAlignment         = Enum.TextXAlignment.Left,
+        }, inputWrap)
+        Pad(box, 10, 0, 10, 0)
+
+        function obj:SetValue(v, silent)
+            local str = tostring(v or "")
+            obj.Value = str
+            if box.Text ~= str then
+                box.Text = str
+            end
+            Library.Flags[idx] = str
+            if not silent then emit(obj, o, str) end
+        end
+
+        Connect(box.FocusLost, function()
+            if box.Text ~= obj.Value then
+                obj:SetValue(box.Text)
+            end
+        end)
+
+        reg(idx, obj)
+        return obj
+    end
+
     return api
 end
 
+-- ── Window ─────────────────────────────────────────────────
 function Library:AddWindow(cfg)
     cfg = cfg or {}
     local toggleKey = cfg.ToggleKey or Enum.KeyCode.RightShift
@@ -1342,6 +1526,7 @@ function Library:AddWindow(cfg)
     return Win
 end
 
+-- ── Save Manager ───────────────────────────────────────────
 local SaveManager = {}
 SaveManager.Folder = "UILib/configs"
 SaveManager.Ignore = {}
@@ -1376,6 +1561,14 @@ function SaveManager:Save(name)
     for idx, opt in pairs(Library.Options) do
         if not self.Ignore[idx] and opt.Type then
             if opt.Type == "Toggle" or opt.Type == "Slider" then
+                data[idx] = opt.Value
+            elseif opt.Type == "Keybind" then
+                if typeof(opt.Value) == "EnumItem" then
+                    data[idx] = opt.Value.Name
+                else
+                    data[idx] = tostring(opt.Value)
+                end
+            elseif opt.Type == "Input" then
                 data[idx] = opt.Value
             elseif opt.Type == "Dropdown" then
                 if type(opt.Value) == "table" then
@@ -1436,7 +1629,11 @@ function SaveManager:Load(name)
         local opt = Library.Options[idx]
         if opt and opt.SetValue then
             pcall(function()
-                opt:SetValue(value)
+                if opt.Type == "Keybind" and type(value) == "string" then
+                    opt:SetValue(Enum.KeyCode[value] or Enum.KeyCode.Unknown)
+                else
+                    opt:SetValue(value)
+                end
             end)
         end
     end
@@ -1592,9 +1789,7 @@ function SaveManager:BuildConfigSection(tab, side)
             return
         end
         local success, result = pcall(function() return self:Save(name) end)
-        if not success or not result then
-            return
-        end
+        if not success or not result then return end
         refreshList()
         local opt = Library.Options.ConfigList
         if opt and opt.SetValue then
@@ -1672,6 +1867,149 @@ end
 
 Library.SaveManager = SaveManager
 
+-- ── Floating Buttons ───────────────────────────────────────
+function Library:AddFloatingButton(cfg)
+    cfg = cfg or {}
+    local parent = GuiParent()
+    local floatGui = parent:FindFirstChild("UILibFloating")
+    if not floatGui then
+        floatGui = New("ScreenGui", {
+            Name           = "UILibFloating",
+            ResetOnSpawn   = false,
+            DisplayOrder   = 150,
+            IgnoreGuiInset = true,
+            ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        }, parent)
+    end
+
+    local size = cfg.Size or 48
+    local btn = New("TextButton", {
+        AnchorPoint      = Vector2.new(0, 0),
+        Position         = cfg.Position or UDim2.new(1, -16 - size, 1, -16 - size),
+        Size             = UDim2.fromOffset(size, size),
+        BackgroundColor3 = T.Group,
+        Text             = "",
+        AutoButtonColor  = false,
+    }, floatGui)
+    Corner(btn, cfg.Round and math.floor(size / 2) or 8)
+    Stroke(btn, T.Stroke, 0.4)
+
+    local iconSize = cfg.IconSize or math.floor(size * 0.42)
+    local icon = New("ImageLabel", {
+        BackgroundTransparency = 1,
+        AnchorPoint            = Vector2.new(0.5, 0.5),
+        Position               = UDim2.fromScale(0.5, 0.5),
+        Size                   = UDim2.fromOffset(iconSize, iconSize),
+        ImageColor3            = T.Text,
+    }, btn)
+    if cfg.Icon then Library:ApplyIcon(icon, cfg.Icon) end
+
+    if not cfg.Icon and cfg.Text then
+        local lbl = Label(btn, cfg.Text, 12, T.Text, Enum.Font.GothamMedium)
+        lbl.Size = UDim2.fromScale(1, 1)
+        lbl.TextXAlignment = Enum.TextXAlignment.Center
+        lbl.TextYAlignment = Enum.TextYAlignment.Center
+    end
+
+    local state = false
+    local listeners = {}
+
+    local function fireCb(...)
+        if cfg.Callback then task.spawn(cfg.Callback, ...) end
+        for _, fn in ipairs(listeners) do task.spawn(fn, ...) end
+    end
+
+    Connect(btn.MouseEnter, function()
+        Tween(btn, 0.12, {
+            BackgroundColor3 = state and Color3.fromRGB(58, 58, 58) or T.Hover,
+        })
+    end)
+    Connect(btn.MouseLeave, function()
+        Tween(btn, 0.12, {
+            BackgroundColor3 = state and Color3.fromRGB(52, 52, 52) or T.Group,
+        })
+    end)
+
+    -- Drag support
+    local dragging, dragStart, startPos, wasDragged = false, nil, nil, false
+    Connect(btn.InputBegan, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            wasDragged = false
+            dragStart = input.Position
+            startPos = btn.Position
+        end
+    end)
+    Connect(UIS.InputChanged, function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch) then
+            local d = input.Position - dragStart
+            if d.Magnitude > 4 then wasDragged = true end
+            btn.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y
+            )
+        end
+    end)
+    Connect(UIS.InputEnded, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    local obj = { Button = btn, Value = false, Type = "FloatingButton" }
+
+    function obj:OnChanged(fn)
+        table.insert(listeners, fn)
+        return obj
+    end
+
+    function obj:SetValue(v, silent)
+        obj.Value = not not v
+        state = obj.Value
+        if cfg.Toggleable then
+            Tween(btn, 0.15, {
+                BackgroundColor3 = state and Color3.fromRGB(52, 52, 52) or T.Group,
+            })
+            Tween(icon, 0.15, {
+                ImageColor3 = state and T.Accent or T.Text,
+            })
+        end
+        if not silent then fireCb(obj.Value) end
+    end
+
+    function obj:Destroy() btn:Destroy() end
+
+    Connect(btn.MouseButton1Click, function()
+        if wasDragged then return end
+        if cfg.Toggleable then
+            obj:SetValue(not obj.Value)
+        else
+            fireCb()
+        end
+    end)
+
+    return obj
+end
+
+function Library:AddFloatingWindowToggle(win, cfg)
+    cfg = cfg or {}
+    cfg.Icon = cfg.Icon or "layout-dashboard"
+    cfg.Toggleable = true
+    local fb = self:AddFloatingButton(cfg)
+    local startState = win.Visible ~= false
+    fb:SetValue(startState, true)
+    if cfg.AutoToggle then
+        fb:OnChanged(function(v) win:Toggle(v) end)
+    else
+        fb:OnChanged(function(v) win:Toggle(v) end)
+    end
+    return fb
+end
+
+-- ── Dropdown outside-click listener ────────────────────────
 if not Library._dropdownListener then
     Library._dropdownListener = UIS.InputBegan:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
