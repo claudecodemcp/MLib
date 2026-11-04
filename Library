@@ -163,28 +163,27 @@ local function IconBadge(parent, boxSize, iconSize, icon, color, transparency)
 	return badge, img, has, s
 end
 
-local function AddGlow(btn, color)
+local function AddIconGlow(btn, badge, img, iconSize, color)
 	local layers = {}
 	for i = 1, 3 do
-		local f = New("Frame", {
-			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5),
-			Size = UDim2.new(1, i * 7, 1, i * 7),
-			BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 0,
-		}, btn)
-		Corner(f, 8 + i * 3)
-		local s = Stroke(f, color or T.Accent, 1)
-		s.Thickness = 1
-		layers[i] = s
+		local g = New("ImageLabel", {
+			BackgroundTransparency = 1, AnchorPoint = Vector2.new(.5, .5),
+			Position = UDim2.fromScale(.5, .5),
+			Size = UDim2.fromOffset(iconSize * (1 + i * .5), iconSize * (1 + i * .5)),
+			Image = img.Image, ImageRectSize = img.ImageRectSize, ImageRectOffset = img.ImageRectOffset,
+			ImageColor3 = color or T.Accent, ImageTransparency = 1, ZIndex = 1,
+		}, badge)
+		layers[i] = g
 	end
 
 	local hovered = false
 	local function apply(pulse)
-		for i, s in ipairs(layers) do
+		for i, g in ipairs(layers) do
 			local tr
-			if pulse then tr = .2 + (i - 1) * .2
-			elseif hovered then tr = .62 + (i - 1) * .1
+			if pulse then tr = .35 + (i - 1) * .17
+			elseif hovered then tr = .62 + (i - 1) * .12
 			else tr = 1 end
-			Tween(s, .18, { Transparency = tr })
+			Tween(g, .18, { ImageTransparency = tr })
 		end
 	end
 
@@ -385,7 +384,7 @@ function Library:AddWindow(cfg)
 		fb.Size = UDim2.fromScale(1, 1); fb.TextXAlignment = Enum.TextXAlignment.Center; fb.ZIndex = 3
 		fb.Visible = not hasIcon
 
-		local pulseGlow = AddGlow(btn, T.Accent)
+		local pulseGlow = hasIcon and AddIconGlow(btn, badge, img, 22, T.Accent) or function() end
 
 		local page = New("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false }, pages)
 
