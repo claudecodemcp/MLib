@@ -1061,16 +1061,48 @@ function Library:AddWindow(cfg)
     Library:ApplyIcon(closeImg, "x")
     Connect(closeBtn.MouseButton1Click, function() Win:Toggle(false) end)
 
+    -- Content (leaves room for footer)
+    local footerHeight = 30
     local content = New("Frame", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(14, 14),
-        Size = UDim2.new(1, -28, 1, -28),
+        Size = UDim2.new(1, -28, 1, -70),
     }, main)
 
     local pages = New("Frame", {
         BackgroundTransparency = 1,
         Size = UDim2.fromScale(1, 1),
     }, content)
+
+    -- Footer divider
+    New("Frame", {
+        Name = "FooterDivider",
+        Position = UDim2.new(0, 14, 1, -50),
+        Size = UDim2.new(1, -28, 0, 1),
+        BackgroundColor3 = T.Stroke,
+        BackgroundTransparency = 0.5,
+    }, main)
+
+    -- Footer
+    local footer = New("Frame", {
+        Name = "Footer",
+        Position = UDim2.new(0, 14, 1, -44),
+        Size = UDim2.new(1, -28, 0, footerHeight),
+        BackgroundTransparency = 1,
+    }, main)
+    Win.Footer = footer
+
+    local versionLbl = Label(footer, "v" .. Library._version, 11, T.SubText)
+    versionLbl.Position = UDim2.fromOffset(0, 0)
+    versionLbl.Size = UDim2.fromScale(0.5, 1)
+    versionLbl.TextYAlignment = Enum.TextYAlignment.Center
+
+    local creditLbl = Label(footer, cfg.Footer or "UILib", 11, T.SubText)
+    creditLbl.AnchorPoint = Vector2.new(1, 0)
+    creditLbl.Position = UDim2.fromScale(1, 0)
+    creditLbl.Size = UDim2.fromScale(0.5, 1)
+    creditLbl.TextXAlignment = Enum.TextXAlignment.Right
+    creditLbl.TextYAlignment = Enum.TextYAlignment.Center
 
     local Lighting = game:GetService("Lighting")
     local blurEffect = Lighting:FindFirstChild("UILibBlur")
