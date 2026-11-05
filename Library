@@ -5,7 +5,7 @@ local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
 local Library = {
-    _version = "1.0.5",
+    _version = "1.0.6",
     Flags = {},
     Options = {},
     Windows = {},
@@ -18,6 +18,9 @@ local Library = {
     IconCache = {},
     _userCache = {},
     _userFetching = {},
+    _themeTrack = setmetatable({}, {__mode = "k"}),
+    _floatingButtons = {},
+    CurrentThemeName = "Default",
     Theme = {},
     Themes = {},
     ConfigFolder = "UILib/configs",
@@ -92,11 +95,48 @@ function Library:SetTheme(name)
         for k, v in pairs(theme) do
             self.Theme[k] = v
         end
+        self.CurrentThemeName = name
     end
 end
 
 Library:SetTheme("Default")
 local T = Library.Theme
+
+local function trackTheme(obj, prop, key)
+    if not obj then return end
+    Library._themeTrack[obj] = Library._themeTrack[obj] or {}
+    Library._themeTrack[obj][prop] = key
+    if T[key] ~= nil then
+        pcall(function() obj[prop] = T[key] end)
+    end
+end
+
+local function refreshThemeTree(root)
+    if not root then return end
+    for _, desc in ipairs(root:GetDescendants()) do
+        local map = Library._themeTrack[desc]
+        if map then
+            for prop, key in pairs(map) do
+                if prop ~= "_refresh" and T[key] ~= nil then
+                    pcall(function() desc[prop] = T[key] end)
+                end
+            end
+            if type(map._refresh) == "function" then
+                pcall(map._refresh)
+            end
+        end
+    end
+end
+
+function Library:ApplyTheme(name)
+    self:SetTheme(name)
+    for _, win in ipairs(self.Windows) do
+        if win.RefreshTheme then pcall(win.RefreshTheme, win) end
+    end
+    for _, fb in ipairs(self._floatingButtons or {}) do
+        if fb.RefreshTheme then pcall(fb.RefreshTheme, fb) end
+    end
+end
 
 local function New(class, props, parent)
     local obj = Instance.new(class)
@@ -111,13 +151,16 @@ local function Corner(obj, radius)
 end
 
 local function Stroke(obj, color, transparency)
-    return New("UIStroke", {
+    local s = New("UIStroke", {
         Color = color or T.Stroke,
         Transparency = transparency or T.StrokeTransparency or 0.4,
         ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
         LineJoinMode = Enum.LineJoinMode.Round,
         Thickness = 1,
     }, obj)
+    trackTheme(s, "Color", "Stroke")
+    trackTheme(s, "Transparency", "StrokeTransparency")
+    return s
 end
 
 local function Pad(obj, l, t, r, b)
@@ -619,6 +662,7 @@ local function BuildElements(holder, reg)
         l.AutomaticSize = Enum.AutomaticSize.Y
         l.TextWrapped = true
         Pad(l, 4, 2, 4, 2)
+        trackTheme(l, "TextColor3", "SubText")
         local obj = {
             Type    = "Label",
             Value   = tostring(text or ""),
@@ -660,6 +704,8 @@ local function BuildElements(holder, reg)
         }, holder)
         Corner(b, 6)
         Stroke(b, T.Stroke, 0.55)
+        trackTheme(b, "BackgroundColor3", "Element")
+        trackTheme(b, "TextColor3", "Text")
         Connect(b.MouseEnter, function() Tween(b, 0.12, { BackgroundColor3 = Color3.fromRGB(52, 52, 52) }) end)
         Connect(b.MouseLeave, function() Tween(b, 0.12, { BackgroundColor3 = T.Element }) end)
 
@@ -689,6 +735,7 @@ local function BuildElements(holder, reg)
         local l = Label(row, o.Text or idx, 13, T.Text)
         l.Position = UDim2.fromOffset(6, 0)
         l.Size = UDim2.new(1, -42, 1, 0)
+        trackTheme(l, "TextColor3", "Text")
 
         local box = New("Frame", {
             AnchorPoint = Vector2.new(1, 0.5),
@@ -699,6 +746,10 @@ local function BuildElements(holder, reg)
         }, row)
         Corner(box, 5)
         Stroke(box, T.Stroke, 0.4)
+        Library._themeTrack[box] = Library._themeTrack[box] or {}
+        Library._themeTrack[box]._refresh = function()
+            box.BackgroundColor3 = obj.Value and T.Hover or T.Element
+        end
 
         local check = New("ImageLabel", {
             BackgroundTransparency = 1,
@@ -709,6 +760,7 @@ local function BuildElements(holder, reg)
             ImageTransparency = 1,
         }, box)
         Library:ApplyIcon(check, "check")
+        trackTheme(check, "ImageColor3", "Accent")
 
         function obj:SetValue(v, silent)
             obj.Value = not not v
@@ -747,6 +799,7 @@ local function BuildElements(holder, reg)
             }, row)
             Corner(keyChip, 4)
             Stroke(keyChip, T.Stroke, 0.5)
+            trackTheme(keyChip, "BackgroundColor3", "Element")
             Pad(keyChip, 8, 0, 8, 0)
             New("UISizeConstraint", { MinSize = Vector2.new(30, 22) }, keyChip)
 
@@ -858,12 +911,14 @@ local function BuildElements(holder, reg)
         local l = Label(row, o.Text or idx, 13, T.Text)
         l.Position = UDim2.fromOffset(6, 6)
         l.Size = UDim2.new(0.62, 0, 0, 18)
+        trackTheme(l, "TextColor3", "Text")
 
         local valLabel = Label(row, "", 13, T.SubText)
         valLabel.AnchorPoint = Vector2.new(1, 0)
         valLabel.Position = UDim2.new(1, -8, 0, 6)
         valLabel.Size = UDim2.new(0.35, 0, 0, 18)
         valLabel.TextXAlignment = Enum.TextXAlignment.Right
+        trackTheme(valLabel, "TextColor3", "SubText")
 
         local bar = New("TextButton", {
             Text = "",
@@ -875,12 +930,14 @@ local function BuildElements(holder, reg)
         }, row)
         Corner(bar, 3)
         Stroke(bar, T.Stroke, 0.55)
+        trackTheme(bar, "BackgroundColor3", "Element")
 
         local fill = New("Frame", {
             Size = UDim2.fromScale(0, 1),
             BackgroundColor3 = T.Accent,
         }, bar)
         Corner(fill, 3)
+        trackTheme(fill, "BackgroundColor3", "Accent")
 
         local knob = New("Frame", {
             AnchorPoint = Vector2.new(0.5, 0.5),
@@ -890,6 +947,7 @@ local function BuildElements(holder, reg)
         }, bar)
         Corner(knob, 6)
         Stroke(knob, T.Stroke, 0.25)
+        trackTheme(knob, "BackgroundColor3", "Accent")
 
         function obj:SetValue(v, silent)
             local mult = 10 ^ rnd
@@ -961,12 +1019,14 @@ local function BuildElements(holder, reg)
         }, row)
         Corner(head, 6)
         Stroke(head, T.Stroke, 0.4)
-        Connect(head.MouseEnter, function() Tween(head, 0.12, { BackgroundColor3 = Color3.fromRGB(50, 50, 50) }) end)
+        trackTheme(head, "BackgroundColor3", "Element")
+        Connect(head.MouseEnter, function() Tween(head, 0.12, { BackgroundColor3 = T.Hover }) end)
         Connect(head.MouseLeave, function() Tween(head, 0.12, { BackgroundColor3 = T.Element }) end)
 
         local titleLbl = Label(head, o.Text or idx, 13, T.Text)
         titleLbl.Position = UDim2.fromOffset(10, 0)
         titleLbl.Size = UDim2.new(0.42, 0, 1, 0)
+        trackTheme(titleLbl, "TextColor3", "Text")
 
         local currentAvatar = nil
         if profiles then
@@ -993,6 +1053,7 @@ local function BuildElements(holder, reg)
         end
         currentLbl.TextXAlignment = Enum.TextXAlignment.Right
         currentLbl.TextTruncate   = Enum.TextTruncate.AtEnd
+        trackTheme(currentLbl, "TextColor3", "SubText")
 
         local arrow = New("ImageLabel", {
             BackgroundTransparency = 1,
@@ -1002,6 +1063,7 @@ local function BuildElements(holder, reg)
             ImageColor3 = T.SubText,
         }, head)
         Library:ApplyIcon(arrow, "chevron-down")
+        trackTheme(arrow, "ImageColor3", "SubText")
 
         local listWrap = New("Frame", {
             Size = UDim2.new(1, 0, 0, 0),
@@ -1013,6 +1075,8 @@ local function BuildElements(holder, reg)
         }, row)
         Corner(listWrap, 6)
         Stroke(listWrap, T.Stroke, 0.8)
+        trackTheme(listWrap, "BackgroundColor3", "Group")
+        trackTheme(listWrap, "BackgroundTransparency", "BgTransparency")
 
         local listScroll = New("ScrollingFrame", {
             Size = UDim2.new(1, 0, 1, 0),
@@ -1161,7 +1225,7 @@ local function BuildElements(holder, reg)
                     nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
                     nameLbl.Font = Enum.Font.GothamMedium
 
-                    local userLbl = Label(btn, "", 11, Color3.fromRGB(120, 120, 120))
+                    local userLbl = Label(btn, "", 11, T.SubText)
                     userLbl.Name = "UserLbl"
                     userLbl.Position = UDim2.fromOffset(48, 23)
                     userLbl.Size = UDim2.new(1, -56, 0, 14)
@@ -1307,6 +1371,7 @@ local function BuildElements(holder, reg)
         local l = Label(row, o.Text or idx, 13, T.Text)
         l.Position = UDim2.fromOffset(6, 0)
         l.Size = UDim2.new(0.55, 0, 1, 0)
+        trackTheme(l, "TextColor3", "Text")
 
         local keyBtn = New("TextButton", {
             AnchorPoint = Vector2.new(1, 0.5),
@@ -1322,6 +1387,7 @@ local function BuildElements(holder, reg)
         }, row)
         Corner(keyBtn, 5)
         Stroke(keyBtn, T.Stroke, 0.5)
+        trackTheme(keyBtn, "BackgroundColor3", "Element")
 
         local listening = false
         local function refreshText()
@@ -1409,6 +1475,7 @@ local function BuildElements(holder, reg)
         local titleLbl = Label(row, o.Text or idx, 13, T.Text)
         titleLbl.Size = UDim2.new(1, 0, 0, 16)
         titleLbl.LayoutOrder = 1
+        trackTheme(titleLbl, "TextColor3", "Text")
 
         local inputWrap = New("Frame", {
             Size = UDim2.new(1, 0, 0, 34),
@@ -1419,6 +1486,7 @@ local function BuildElements(holder, reg)
         }, row)
         Corner(inputWrap, 6)
         Stroke(inputWrap, T.Stroke, 0.55)
+        trackTheme(inputWrap, "BackgroundColor3", "Element")
 
         local box = New("TextBox", {
             BackgroundTransparency = 1,
@@ -1433,6 +1501,8 @@ local function BuildElements(holder, reg)
             TextXAlignment = Enum.TextXAlignment.Left,
         }, inputWrap)
         Pad(box, 10, 0, 10, 0)
+        trackTheme(box, "TextColor3", "Text")
+        trackTheme(box, "PlaceholderColor3", "SubText")
 
         function obj:SetValue(v, silent)
             local str = tostring(v or "")
@@ -1486,73 +1556,12 @@ function Library:AddWindow(cfg)
     }, gui)
     Corner(main, 10)
     Stroke(main, T.Stroke, 0.45)
+    trackTheme(main, "BackgroundColor3", "Bg")
+    trackTheme(main, "BackgroundTransparency", "Transparency")
     Win.Main = main
 
     if T.BackgroundGradient then
         New("UIGradient", T.BackgroundGradient, main)
-    end
-
-    if T.FallingEmojis then
-        local bgFrame = New("Frame", {
-            Size = UDim2.fromScale(1, 1),
-            BackgroundTransparency = 1,
-            ClipsDescendants = true,
-            ZIndex = 0,
-        }, main)
-        Corner(bgFrame, 10)
-
-        local iconNames = {"snowflake", "gift", "tree-pine", "snowman", "star", "sparkles"}
-        local particles = {}
-        
-        local lanes = {}
-        for i = 1, 40 do
-            table.insert(lanes, i / 40)
-        end
-        for i = #lanes, 2, -1 do
-            local j = math.random(i)
-            lanes[i], lanes[j] = lanes[j], lanes[i]
-        end
-
-        for i = 1, 25 do
-            local xPos = lanes[i]
-            local iconName = iconNames[math.random(1, #iconNames)]
-            local size = math.random(12, 16)
-            local lbl = New("ImageLabel", {
-                BackgroundTransparency = 1,
-                Size = UDim2.fromOffset(size, size),
-                ImageColor3 = Color3.fromRGB(255, 255, 255),
-                ImageTransparency = math.random(40, 70) / 100,
-                Position = UDim2.fromScale(xPos, math.random(-100, 100) / 100),
-                Rotation = math.random(0, 360),
-                ZIndex = 0,
-            }, bgFrame)
-            Library:ApplyIcon(lbl, iconName)
-            
-            table.insert(particles, {
-                label = lbl,
-                y = lbl.Position.Y.Scale,
-                x = xPos,
-                speed = math.random(3, 7) / 100,
-                rotSpeed = math.random(-2, 2) / 10,
-            })
-        end
-
-        Connect(RunService.RenderStepped, function(dt)
-            for _, p in ipairs(particles) do
-                local lbl = p.label
-                if lbl and lbl.Parent then
-                    p.y = p.y + p.speed * dt
-                    if p.y > 1.1 then
-                        p.y = -0.1
-                        lbl.Rotation = math.random(0, 360)
-                        p.speed = math.random(3, 7) / 100
-                    else
-                        lbl.Rotation = lbl.Rotation + p.rotSpeed
-                    end
-                    lbl.Position = UDim2.fromScale(p.x, p.y)
-                end
-            end
-        end)
     end
 
     local topBar = New("Frame", {
@@ -1572,6 +1581,8 @@ function Library:AddWindow(cfg)
     }, topBar)
     Corner(titlePill, 8)
     Stroke(titlePill, T.Stroke, 0.4)
+    trackTheme(titlePill, "BackgroundColor3", "Group")
+    trackTheme(titlePill, "BackgroundTransparency", "BgTransparency")
     Pad(titlePill, 12, 0, 14, 0)
 
     if T.SantaHat then
@@ -1607,6 +1618,7 @@ function Library:AddWindow(cfg)
     titleTxt.TextXAlignment = Enum.TextXAlignment.Left
     titleTxt.TextYAlignment = Enum.TextYAlignment.Center
     titleTxt.LayoutOrder = 2
+    trackTheme(titleTxt, "TextColor3", "Text")
 
     local divider = New("Frame", {
         Position = UDim2.fromOffset(0, 12),
@@ -1614,6 +1626,7 @@ function Library:AddWindow(cfg)
         BackgroundColor3 = T.Stroke,
         BackgroundTransparency = 0.35,
     }, topBar)
+    trackTheme(divider, "BackgroundColor3", "Stroke")
 
     local function updateDivider()
         divider.Position = UDim2.fromOffset(titlePill.AbsoluteSize.X + 12, 12)
@@ -1674,6 +1687,8 @@ function Library:AddWindow(cfg)
     }, rightIcons)
     Corner(bellBlock, 8)
     Stroke(bellBlock, T.Stroke, 0.4)
+    trackTheme(bellBlock, "BackgroundColor3", "Group")
+    trackTheme(bellBlock, "BackgroundTransparency", "BgTransparency")
     local bellImg = New("ImageLabel", {
         BackgroundTransparency = 1,
         AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1682,6 +1697,7 @@ function Library:AddWindow(cfg)
         ImageColor3 = T.Text,
     }, bellBlock)
     Library:ApplyIcon(bellImg, "bell")
+    trackTheme(bellImg, "ImageColor3", "Text")
 
     local closeBtn = New("TextButton", {
         Size = UDim2.fromOffset(42, 42),
@@ -1692,6 +1708,8 @@ function Library:AddWindow(cfg)
     }, rightIcons)
     Corner(closeBtn, 8)
     Stroke(closeBtn, T.Stroke, 0.4)
+    trackTheme(closeBtn, "BackgroundColor3", "Group")
+    trackTheme(closeBtn, "BackgroundTransparency", "BgTransparency")
     local closeImg = New("ImageLabel", {
         BackgroundTransparency = 1,
         AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1700,6 +1718,7 @@ function Library:AddWindow(cfg)
         ImageColor3 = T.SubText,
     }, closeBtn)
     Library:ApplyIcon(closeImg, "x")
+    trackTheme(closeImg, "ImageColor3", "SubText")
     Connect(closeBtn.MouseButton1Click, function() Win:Toggle(false) end)
 
     local content = New("Frame", {
@@ -1723,6 +1742,8 @@ function Library:AddWindow(cfg)
     }, main)
     Corner(notifyViewer, 10)
     Stroke(notifyViewer, T.Stroke, 0.45)
+    trackTheme(notifyViewer, "BackgroundColor3", "Bg")
+    trackTheme(notifyViewer, "BackgroundTransparency", "BgTransparency")
 
     local nvHeader = New("Frame", {
         Size = UDim2.new(1, 0, 0, 52),
@@ -1733,6 +1754,7 @@ function Library:AddWindow(cfg)
     local nvTitle = Label(nvHeader, "Notify Viewer", 15, T.Text, Enum.Font.GothamBold)
     nvTitle.Position = UDim2.fromOffset(16, 0)
     nvTitle.Size = UDim2.new(1, -60, 1, 0)
+    trackTheme(nvTitle, "TextColor3", "Text")
 
     local nvClose = New("TextButton", {
         AnchorPoint = Vector2.new(1, 0.5),
@@ -1749,6 +1771,7 @@ function Library:AddWindow(cfg)
         ZIndex = 12,
     }, nvClose)
     Library:ApplyIcon(nvCloseIcon, "x")
+    trackTheme(nvCloseIcon, "ImageColor3", "SubText")
 
     local nvDivider = New("Frame", {
         Position = UDim2.fromOffset(0, 52),
@@ -1757,6 +1780,7 @@ function Library:AddWindow(cfg)
         BackgroundTransparency = 0.5,
         ZIndex = 11,
     }, notifyViewer)
+    trackTheme(nvDivider, "BackgroundColor3", "Stroke")
 
     local nvScroll = New("ScrollingFrame", {
         Position = UDim2.fromOffset(0, 53),
@@ -1840,6 +1864,7 @@ function Library:AddWindow(cfg)
     footerLbl.TextXAlignment = Enum.TextXAlignment.Center
     footerLbl.TextYAlignment = Enum.TextYAlignment.Center
     footerLbl.TextTruncate = Enum.TextTruncate.AtEnd
+    trackTheme(footerLbl, "TextColor3", "SubText")
     Win.FooterLabel = footerLbl
 
     local Lighting = game:GetService("Lighting")
@@ -1858,6 +1883,20 @@ function Library:AddWindow(cfg)
     function Win:SetDPIScale(scale)
         dpiScale = math.clamp(tonumber(scale) or 1, 0.2, 3)
         if Win.Visible then mainScale.Scale = dpiScale end
+    end
+
+    function Win:RefreshTheme()
+        refreshThemeTree(Win.Gui)
+        for _, t in ipairs(Win.Tabs) do
+            local active = (t == Win.Current)
+            if t.Btn and t.Btn.Parent then
+                t.Btn.BackgroundColor3 = active and T.Group or T.Bg
+                t.Btn.BackgroundTransparency = active and 0 or (T.BgTransparency or 0)
+            end
+            if t.Img and t.Img.Parent then
+                t.Img.ImageColor3 = active and T.Text or T.SubText
+            end
+        end
     end
 
     function Win:Toggle(state)
@@ -1921,6 +1960,8 @@ function Library:AddWindow(cfg)
         }, tabList)
         Corner(btn, 8)
         Stroke(btn, T.Stroke, 0.5)
+        trackTheme(btn, "BackgroundColor3", "Bg")
+        trackTheme(btn, "BackgroundTransparency", "BgTransparency")
 
         local img = New("ImageLabel", {
             BackgroundTransparency = 1,
@@ -1930,6 +1971,7 @@ function Library:AddWindow(cfg)
             ImageColor3 = T.SubText,
         }, btn)
         if icon then Library:ApplyIcon(img, icon) end
+        trackTheme(img, "ImageColor3", "SubText")
 
         local page = New("Frame", {
             BackgroundTransparency = 1,
@@ -1983,6 +2025,8 @@ function Library:AddWindow(cfg)
             }, Tab.Cols[side])
             Corner(box, 8)
             Stroke(box, T.Stroke, 0.35)
+            trackTheme(box, "BackgroundColor3", "Group")
+            trackTheme(box, "BackgroundTransparency", "BgTransparency")
 
             local header = New("Frame", {
                 Size = UDim2.new(1, 0, 0, 44),
@@ -2007,13 +2051,15 @@ function Library:AddWindow(cfg)
             local titleLabel = Label(header, title, 14, T.Text, Enum.Font.GothamMedium)
             titleLabel.Position = UDim2.fromOffset(iconOffset, 0)
             titleLabel.Size = UDim2.new(1, -iconOffset - 14, 1, 0)
+            trackTheme(titleLabel, "TextColor3", "Text")
 
-            New("Frame", {
+            local groupDivider = New("Frame", {
                 Position = UDim2.fromOffset(12, 43),
                 Size = UDim2.new(1, -24, 0, 1),
                 BackgroundColor3 = T.Stroke,
                 BackgroundTransparency = 0.5,
             }, box)
+            trackTheme(groupDivider, "BackgroundColor3", "Stroke")
 
             local holder = New("Frame", {
                 BackgroundTransparency = 1,
@@ -2047,6 +2093,8 @@ function Library:AddWindow(cfg)
             }, Tab.Cols[side])
             Corner(box, 8)
             Stroke(box, T.Stroke, 0.35)
+            trackTheme(box, "BackgroundColor3", "Group")
+            trackTheme(box, "BackgroundTransparency", "BgTransparency")
 
             local tabButtons = New("Frame", {
                 Size = UDim2.new(1, 0, 0, 36),
@@ -2151,6 +2199,7 @@ function Library:AddWindow(cfg)
     return Win
 end
 
+-- SaveManager unchanged
 local SaveManager = {}
 SaveManager.Folder = "UILib/configs"
 SaveManager.Ignore = {}
@@ -2396,6 +2445,8 @@ function Library:AddFloatingButton(cfg)
     }, floatGui)
     Corner(btn, cfg.Round and math.floor(size / 2) or 8)
     Stroke(btn, T.Stroke, 0.4)
+    trackTheme(btn, "BackgroundColor3", "Group")
+    trackTheme(btn, "BackgroundTransparency", "BgTransparency")
 
     local iconSize = cfg.IconSize or math.floor(size * 0.42)
     local icon = New("ImageLabel", {
@@ -2406,12 +2457,14 @@ function Library:AddFloatingButton(cfg)
         ImageColor3 = T.Text,
     }, btn)
     if cfg.Icon then Library:ApplyIcon(icon, cfg.Icon) end
+    trackTheme(icon, "ImageColor3", "Text")
 
     if not cfg.Icon and cfg.Text then
         local lbl = Label(btn, cfg.Text, 12, T.Text, Enum.Font.GothamMedium)
         lbl.Size = UDim2.fromScale(1, 1)
         lbl.TextXAlignment = Enum.TextXAlignment.Center
         lbl.TextYAlignment = Enum.TextYAlignment.Center
+        trackTheme(lbl, "TextColor3", "Text")
     end
 
     local state = false
@@ -2474,7 +2527,22 @@ function Library:AddFloatingButton(cfg)
         if not silent then fire(obj.Value) end
     end
 
-    function obj:Destroy() btn:Destroy() end
+    function obj:RefreshTheme()
+        btn.BackgroundColor3 = state and Color3.fromRGB(52, 52, 52) or T.Group
+        btn.BackgroundTransparency = T.BgTransparency or 0
+        local s = btn:FindFirstChildWhichIsA("UIStroke")
+        if s then
+            s.Color = T.Stroke
+            s.Transparency = T.StrokeTransparency or 0.4
+        end
+        icon.ImageColor3 = state and T.Accent or T.Text
+    end
+
+    function obj:Destroy()
+        local idx = table.find(Library._floatingButtons, obj)
+        if idx then table.remove(Library._floatingButtons, idx) end
+        btn:Destroy()
+    end
 
     Connect(btn.MouseButton1Click, function()
         if wasDragged then return end
@@ -2485,6 +2553,7 @@ function Library:AddFloatingButton(cfg)
         end
     end)
 
+    table.insert(Library._floatingButtons, obj)
     return obj
 end
 
