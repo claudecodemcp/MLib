@@ -4,7 +4,7 @@ local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 
 local Library = {
-    _version = "2.3",
+    _version = "2.4",
     Flags = {},
     Options = {},
     Windows = {},
@@ -537,6 +537,118 @@ local function BuildElements(holder, reg)
         Connect(row.MouseButton1Click, function() obj:SetValue(not obj.Value) end)
         reg(idx, obj)
         obj:SetValue(obj.Value, true)
+
+        function obj:AddInlineKeybind(kbName, kbOpts)
+            kbOpts = kbOpts or {}
+
+            local keyChip = New("TextButton", {
+                AnchorPoint = Vector2.new(0, 0.5),
+                Position = UDim2.new(0, 6, 0.5, 0),
+                Size = UDim2.fromOffset(30, 22),
+                AutomaticSize = Enum.AutomaticSize.X,
+                BackgroundColor3 = T.Element,
+                Text = "—",
+                TextSize = 11,
+                TextColor3 = T.SubText,
+                Font = Enum.Font.GothamMedium,
+                AutoButtonColor = false,
+                ClipsDescendants = true,
+                ZIndex = 2,
+            }, row)
+            Corner(keyChip, 4)
+            Stroke(keyChip, T.Stroke, 0.5)
+            Pad(keyChip, 8, 0, 8, 0)
+            New("UISizeConstraint", { MinSize = Vector2.new(30, 22) }, keyChip)
+
+            local function updateLabelPos()
+                local chipWidth = keyChip.AbsoluteSize.X
+                if chipWidth <= 0 then chipWidth = 30 end
+                l.Position = UDim2.fromOffset(6 + chipWidth + 6, 0)
+                l.Size = UDim2.new(1, -42 - chipWidth - 6, 1, 0)
+            end
+            Connect(keyChip:GetPropertyChangedSignal("AbsoluteSize"), updateLabelPos)
+            task.defer(updateLabelPos)
+
+            local listening = false
+            local boundKey = Enum.KeyCode.Unknown
+            if type(kbOpts.Default) == "string" and kbOpts.Default ~= "None" then
+                boundKey = Enum.KeyCode[kbOpts.Default] or Enum.KeyCode.Unknown
+            elseif typeof(kbOpts.Default) == "EnumItem" then
+                boundKey = kbOpts.Default
+            end
+
+            local function refreshChip()
+                if boundKey == Enum.KeyCode.Unknown then
+                    keyChip.Text = "—"
+                    keyChip.TextColor3 = T.SubText
+                else
+                    keyChip.Text = boundKey.Name
+                    keyChip.TextColor3 = T.Text
+                end
+            end
+            refreshChip()
+
+            local function stopListening(resetText)
+                listening = false
+                Library._listening = false
+                Library._listeningStart = nil
+                if resetText then refreshChip() end
+            end
+
+            Connect(keyChip.MouseButton1Click, function()
+                listening = true
+                Library._listening = true
+                Library._listeningStart = tick()
+                keyChip.Text = "..."
+                keyChip.TextColor3 = T.Accent
+            end)
+
+            local kbObj = { Value = boundKey, Type = "Keybind", Name = kbName }
+            attachCallbacks(kbObj)
+
+            function kbObj:SetValue(v, silent)
+                boundKey = v
+                self.Value = v
+                Library.Flags[kbName] = v
+                refreshChip()
+                if not silent then emit(self, kbOpts, v) end
+            end
+
+            Connect(UIS.InputBegan, function(input, gameProcessed)
+                if listening then
+                    if input.UserInputType == Enum.UserInputType.MouseButton1
+                        or input.UserInputType == Enum.UserInputType.Touch then
+                        local mp = UIS:GetMouseLocation()
+                        if not InRect(keyChip, mp) then stopListening(true) end
+                        return
+                    end
+                    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                    if input.KeyCode == Enum.KeyCode.Escape then
+                        stopListening(true)
+                        return
+                    end
+                    if gameProcessed then return end
+                    stopListening(false)
+                    kbObj:SetValue(input.KeyCode)
+                    return
+                end
+                if gameProcessed or Library._listening then return end
+                if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                if boundKey == Enum.KeyCode.Unknown then return end
+                if input.KeyCode == boundKey then
+                    if kbOpts.SyncToggleState then
+                        obj:SetValue(not obj.Value)
+                    end
+                    if type(kbOpts.OnPressed) == "function" then safeCall(kbOpts.OnPressed) end
+                    emit(kbObj, kbOpts, boundKey)
+                end
+            end)
+
+            Library.Options[kbName] = kbObj
+            Library.Flags[kbName] = boundKey
+            return kbObj
+        end
+
         return obj
     end
 
