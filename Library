@@ -4,7 +4,7 @@ local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 
 local Library = {
-    _version = "2.5",
+    _version = "1.0.0",
     Flags = {},
     Options = {},
     Windows = {},
@@ -881,7 +881,11 @@ local function BuildElements(holder, reg)
             Library.Flags[idx] = obj.Value
             for v, btn in pairs(items) do
                 local on = o.Multi and obj.Value[v] or (obj.Value == v)
-                Tween(btn, 0.12, { TextColor3 = on and T.Accent or T.SubText })
+                local color = on and T.Accent or T.SubText
+                local lbl = btn:FindFirstChildWhichIsA("TextLabel")
+                if lbl then Tween(lbl, 0.12, { TextColor3 = color }) end
+                local icon = btn:FindFirstChildWhichIsA("ImageLabel")
+                if icon then Tween(icon, 0.12, { ImageColor3 = color }) end
             end
         end
 
@@ -890,10 +894,7 @@ local function BuildElements(holder, reg)
             items = {}
             for i, v in ipairs(obj.Values) do
                 local b = New("TextButton", {
-                    Text = tostring(v),
-                    Font = Enum.Font.Gotham,
-                    TextSize = 13,
-                    TextColor3 = T.SubText,
+                    Text = "",
                     Size = UDim2.new(1, 0, 0, 28),
                     BackgroundColor3 = T.Element,
                     BackgroundTransparency = 1,
@@ -902,6 +903,29 @@ local function BuildElements(holder, reg)
                     LayoutOrder = i,
                 }, listScroll)
                 Corner(b, 5)
+                
+                local iconOffset = 8
+                if o.ValueImages and o.ValueImages[v] then
+                    local iconImg = New("ImageLabel", {
+                        BackgroundTransparency = 1,
+                        Position = UDim2.new(0, 8, 0.5, 0),
+                        AnchorPoint = Vector2.new(0, 0.5),
+                        Size = UDim2.fromOffset(16, 16),
+                        ImageColor3 = T.SubText,
+                        ImageTransparency = 1,
+                    }, b)
+                    if Library:ApplyIcon(iconImg, o.ValueImages[v]) then
+                        iconOffset = 32
+                    else
+                        iconImg:Destroy()
+                    end
+                end
+
+                local lbl = Label(b, tostring(v), 13, T.SubText)
+                lbl.Position = UDim2.fromOffset(iconOffset, 0)
+                lbl.Size = UDim2.new(1, -iconOffset - 8, 1, 0)
+                lbl.TextTruncate = Enum.TextTruncate.AtEnd
+
                 Connect(b.MouseEnter, function() Tween(b, 0.1, { BackgroundTransparency = 0.55 }) end)
                 Connect(b.MouseLeave, function() Tween(b, 0.1, { BackgroundTransparency = 1 }) end)
                 Connect(b.MouseButton1Click, function()
