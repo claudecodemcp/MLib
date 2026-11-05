@@ -271,6 +271,57 @@ function Library:IconPreview(name)
     return url ~= nil
 end
 
+function Library:SetCustomCursor(enabled)
+    if enabled == self._cursorEnabled then return end
+    self._cursorEnabled = enabled
+    if enabled then
+        local parent = GuiParent()
+        local curGui = parent:FindFirstChild("UILibCursor")
+        if not curGui then
+            curGui = New("ScreenGui", {
+                Name = "UILibCursor",
+                ResetOnSpawn = false,
+                DisplayOrder = 999,
+                IgnoreGuiInset = true,
+                ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+            }, parent)
+        end
+        local img = curGui:FindFirstChild("CursorImage")
+        if not img then
+            img = New("ImageLabel", {
+                Name = "CursorImage",
+                Size = UDim2.fromOffset(24, 24),
+                BackgroundTransparency = 1,
+                Image = "rbxassetid://103359337734981",
+                ImageColor3 = T.Text,
+                ZIndex = 1000,
+            }, curGui)
+        end
+        self._cursorImage = img
+        UIS.MouseIconEnabled = false
+        if self._cursorConn then
+            pcall(function() self._cursorConn:Disconnect() end)
+        end
+        local RunService = game:GetService("RunService")
+        self._cursorConn = RunService.RenderStepped:Connect(function()
+            if img and img.Parent then
+                local mp = UIS:GetMouseLocation()
+                img.Position = UDim2.fromOffset(mp.X, mp.Y)
+            end
+        end)
+    else
+        UIS.MouseIconEnabled = true
+        if self._cursorConn then
+            pcall(function() self._cursorConn:Disconnect() end)
+            self._cursorConn = nil
+        end
+        if self._cursorImage then
+            pcall(function() self._cursorImage.Parent:Destroy() end)
+            self._cursorImage = nil
+        end
+    end
+end
+
 Library._activeToasts = Library._activeToasts or {}
 
 local function layoutToasts()
@@ -821,22 +872,33 @@ local function BuildElements(holder, reg)
         Connect(keyBtn.MouseButton1Click, function()
             listening = true
             Library._listening = true
+            Library._listeningStart = tick()
             keyBtn.Text = "..."
             keyBtn.TextColor3 = T.Accent
         end)
 
+        local function stopListening(resetText)
+            listening = false
+            Library._listening = false
+            Library._listeningStart = nil
+            if resetText then refreshText() end
+        end
+
         Connect(UIS.InputBegan, function(input, gameProcessed)
             if not listening then return end
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+                or input.UserInputType == Enum.UserInputType.Touch then
+                local mp = UIS:GetMouseLocation()
+                if not InRect(keyBtn, mp) then stopListening(true) end
+                return
+            end
             if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
             if input.KeyCode == Enum.KeyCode.Escape then
-                listening = false
-                Library._listening = false
-                refreshText()
+                stopListening(true)
                 return
             end
             if gameProcessed then return end
-            listening = false
-            Library._listening = false
+            stopListening(false)
             obj:SetValue(input.KeyCode)
         end)
 
@@ -846,6 +908,7 @@ local function BuildElements(holder, reg)
             if obj.Value == Enum.KeyCode.Unknown then return end
             if input.KeyCode == obj.Value then
                 if type(o.OnPressed) == "function" then safeCall(o.OnPressed) end
+                emit(obj, o, obj.Value)
             end
         end)
 
@@ -891,13 +954,17 @@ local function BuildElements(holder, reg)
             TextXAlignment = Enum.TextXAlignment.Left,
         }, inputWrap)
         Pad(box, 10, 0, 10, 0)
-
         function obj:SetValue(v, silent)
-            local str = tostring(v or "")
-            obj.Value = str
-            if box.Text ~= str then box.Text = str end
-            Library.Flags[idx] = str
-            if not silent then emit(obj, o, str) end
+            obj.Value = v
+            Library.Flags[idx] = v
+            refreshText()
+            if not silent then emit(obj, o, v) end
+            if idx == "MenuKeybind" and typeof(v) == "EnumItem" and v ~= Enum.KeyCode.Unknown then
+                for _, w in ipairs(Library.Windows) do
+                    if w.ToggleKey ~= nil then w.ToggleKey = v end
+                    if w._win and w._win.ToggleKey ~= nil then w._win.ToggleKey = v end
+                end
+            end
         end
 
         Connect(box.FocusLost, function()
@@ -1125,30 +1192,50 @@ function Library:AddWindow(cfg)
     end
 
     local mainScale = New("UIScale", { Scale = 1 }, main)
+    local dpiScale = 1
+    local toggleGen = 0
+
+    function Win:SetDPIScale(scale)
+        dpiScale = math.clamp(tonumber(scale) or 1, 0.2, 3)
+        if Win.Visible then mainScale.Scale = dpiScale end
+    end
 
     function Win:Toggle(state)
+        toggleGen = toggleGen + 1
+        local gen = toggleGen
         if state == nil then state = not Win.Visible end
         Win.Visible = state
         if state then
             main.Visible = true
-            mainScale.Scale = 0.96
+            mainScale.Scale = dpiScale * 0.96
             main.BackgroundTransparency = 1
-            Tween(mainScale, 0.28, { Scale = 1 })
+            Tween(mainScale, 0.28, { Scale = dpiScale })
             Tween(main, 0.28, { BackgroundTransparency = T.Transparency })
             Tween(blurEffect, 0.3, { Size = 12 })
         else
-            Tween(mainScale, 0.2, { Scale = 0.96 })
+            Tween(mainScale, 0.2, { Scale = dpiScale * 0.96 })
             Tween(main, 0.2, { BackgroundTransparency = 1 })
             Tween(blurEffect, 0.25, { Size = 0 })
             task.delay(0.22, function()
-                if not Win.Visible then main.Visible = false end
+                if gen == toggleGen and not Win.Visible then
+                    main.Visible = false
+                end
             end)
         end
     end
 
     Connect(UIS.InputBegan, function(input, gameProcessed)
-        if gameProcessed or Library._listening then return end
-        if input.KeyCode == Win.ToggleKey then Win:Toggle() end
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        if input.KeyCode ~= Win.ToggleKey then return end
+        if Library._listening then
+            if Library._listeningStart and (tick() - Library._listeningStart) > 15 then
+                Library._listening = false
+                Library._listeningStart = nil
+            else
+                return
+            end
+        end
+        Win:Toggle()
     end)
 
     function Win:Select(tab)
