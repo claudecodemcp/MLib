@@ -999,10 +999,20 @@ function Library:AddWindow(cfg)
     Connect(titlePill:GetPropertyChangedSignal("AbsoluteSize"), updateDivider)
     task.defer(updateDivider)
 
-    local tabList = New("Frame", {
+    local tabList = New("ScrollingFrame", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(0, 0),
         Size = UDim2.new(1, -290, 1, 0),
+        CanvasSize = UDim2.new(0, 0, 1, 0),
+        AutomaticCanvasSize = Enum.AutomaticSize.X,
+        ScrollingDirection = Enum.ScrollingDirection.X,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = T.SubText,
+        ScrollBarImageTransparency = 0.5,
+        ClipsDescendants = true,
+        ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
+        ScrollingEnabled = true,
+        Active = true,
     }, topBar)
     local tabLayout = List(tabList, 6, Enum.FillDirection.Horizontal)
     tabLayout.VerticalAlignment = Enum.VerticalAlignment.Center
@@ -1012,6 +1022,16 @@ function Library:AddWindow(cfg)
     end
     Connect(titlePill:GetPropertyChangedSignal("AbsoluteSize"), updateTabListPos)
     task.defer(updateTabListPos)
+
+    Connect(UIS.InputChanged, function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseWheel then return end
+        local mousePos = UIS:GetMouseLocation()
+        if not InRect(tabList, mousePos) then return end
+        local maxX = math.max(0, tabLayout.AbsoluteContentSize.X - tabList.AbsoluteSize.X)
+        if maxX <= 0 then return end
+        local newX = math.clamp(tabList.CanvasPosition.X - input.Position.Z * 40, 0, maxX)
+        tabList.CanvasPosition = Vector2.new(newX, tabList.CanvasPosition.Y)
+    end)
 
     local rightIcons = New("Frame", {
         AnchorPoint = Vector2.new(1, 0.5),
@@ -1061,7 +1081,6 @@ function Library:AddWindow(cfg)
     Library:ApplyIcon(closeImg, "x")
     Connect(closeBtn.MouseButton1Click, function() Win:Toggle(false) end)
 
-    -- Content (leaves room for footer)
     local content = New("Frame", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(14, 14),
@@ -1073,7 +1092,6 @@ function Library:AddWindow(cfg)
         Size = UDim2.fromScale(1, 1),
     }, content)
 
-    -- Footer divider
     New("Frame", {
         Name = "FooterDivider",
         Position = UDim2.new(0, 14, 1, -50),
@@ -1082,7 +1100,6 @@ function Library:AddWindow(cfg)
         BackgroundTransparency = 0.5,
     }, main)
 
-    -- Footer (centered, full width)
     local footer = New("Frame", {
         Name = "Footer",
         Position = UDim2.new(0, 14, 1, -44),
@@ -1110,7 +1127,7 @@ function Library:AddWindow(cfg)
     local mainScale = New("UIScale", { Scale = 1 }, main)
 
     function Win:Toggle(state)
-        if state == nil then state = not main.Visible end
+        if state == nil then state = not Win.Visible end
         Win.Visible = state
         if state then
             main.Visible = true
