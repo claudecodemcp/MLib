@@ -2384,8 +2384,15 @@ function Library:AddFloatingButton(cfg)
         }, parent)
     end
 
+    -- FIX: Destroy existing floating button to prevent duplication when UI is rebuilt
+    local existingBtn = floatGui:FindFirstChild("UILibFloatingBtn")
+    if existingBtn then
+        existingBtn:Destroy()
+    end
+
     local size = cfg.Size or 48
     local btn = New("TextButton", {
+        Name = "UILibFloatingBtn",
         AnchorPoint = Vector2.new(0, 0),
         Position = cfg.Position or UDim2.new(1, -16 - size, 1, -16 - size),
         Size = UDim2.fromOffset(size, size),
