@@ -4,7 +4,7 @@ local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 
 local Library = {
-    _version = "2.4",
+    _version = "2.5",
     Flags = {},
     Options = {},
     Windows = {},
@@ -347,10 +347,24 @@ local function layoutToasts()
 end
 
 function Library:Notify(text, duration)
-    duration = duration or 4
-    text = tostring(text)
+    local isTable = type(text) == "table"
+    local titleText = "Notification"
+    local bodyText = ""
+    
+    if isTable then
+        titleText = tostring(text.Title or text.title or "Notification")
+        bodyText = tostring(text.Description or text.description or text.Content or text.content or text.Message or text.message or "")
+        duration = text.Duration or text.Time or text.duration or text.time or duration or 4
+        if bodyText == "" then
+            bodyText = titleText
+            titleText = "Notification"
+        end
+    else
+        bodyText = tostring(text or "")
+        duration = duration or 4
+    end
 
-    local entry = { Text = text, Time = os.date("%H:%M:%S"), Id = #Library.Notifications + 1 }
+    local entry = { Text = bodyText, Time = os.date("%H:%M:%S"), Id = #Library.Notifications + 1 }
     table.insert(Library.Notifications, 1, entry)
     if #Library.Notifications > 50 then table.remove(Library.Notifications) end
 
@@ -391,10 +405,10 @@ function Library:Notify(text, duration)
     Pad(inner, 12, 10, 12, 10)
     List(inner, 4)
 
-    local title = Label(inner, "Notification", 12, T.SubText)
+    local title = Label(inner, titleText, 12, T.SubText)
     title.Size = UDim2.new(1, 0, 0, 14)
 
-    local body = Label(inner, text, 13, T.Text)
+    local body = Label(inner, bodyText, 13, T.Text)
     body.Size = UDim2.new(1, 0, 0, 0)
     body.AutomaticSize = Enum.AutomaticSize.Y
     body.TextWrapped = true
