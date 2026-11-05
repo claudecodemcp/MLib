@@ -2,9 +2,10 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
 
 local Library = {
-    _version = "1.0.0",
+    _version = "1.0.5",
     Flags = {},
     Options = {},
     Windows = {},
@@ -15,7 +16,15 @@ local Library = {
     _listeningStart = nil,
     _notifViewer = nil,
     IconCache = {},
-    Theme = {
+    _userCache = {},
+    _userFetching = {},
+    Theme = {},
+    Themes = {},
+    ConfigFolder = "UILib/configs",
+}
+
+Library.Themes = {
+    Default = {
         Bg = Color3.fromRGB(18, 18, 18),
         Panel = Color3.fromRGB(24, 24, 24),
         Group = Color3.fromRGB(30, 30, 30),
@@ -26,10 +35,67 @@ local Library = {
         Accent = Color3.fromRGB(255, 255, 255),
         Hover = Color3.fromRGB(48, 48, 48),
         Transparency = 0.02,
+        BgTransparency = 0,
+        ElementTransparency = 0,
+        StrokeTransparency = 0.4,
+        FallingEmojis = false,
+        SantaHat = false,
     },
-    ConfigFolder = "UILib/configs",
+    Christmas = {
+        Bg = Color3.fromRGB(18, 24, 18),
+        Panel = Color3.fromRGB(24, 32, 24),
+        Group = Color3.fromRGB(30, 40, 30),
+        Element = Color3.fromRGB(40, 50, 40),
+        Stroke = Color3.fromRGB(60, 80, 60),
+        Text = Color3.fromRGB(255, 255, 255),
+        SubText = Color3.fromRGB(200, 200, 200),
+        Accent = Color3.fromRGB(255, 50, 50),
+        Hover = Color3.fromRGB(50, 65, 50),
+        Transparency = 0.05,
+        BgTransparency = 0,
+        ElementTransparency = 0,
+        StrokeTransparency = 0.4,
+        FallingEmojis = true,
+        SantaHat = true,
+        BackgroundGradient = {
+            Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(90, 15, 15)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(15, 20, 15)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 70, 15)),
+            }),
+            Rotation = 135,
+        }
+    },
+    Glass = {
+        Bg = Color3.fromRGB(10, 10, 10),
+        Panel = Color3.fromRGB(10, 10, 10),
+        Group = Color3.fromRGB(15, 15, 15),
+        Element = Color3.fromRGB(20, 20, 20),
+        Stroke = Color3.fromRGB(255, 255, 255),
+        Text = Color3.fromRGB(255, 255, 255),
+        SubText = Color3.fromRGB(180, 180, 180),
+        Accent = Color3.fromRGB(255, 255, 255),
+        Hover = Color3.fromRGB(40, 40, 40),
+        Transparency = 0.88,
+        BgTransparency = 0.88,
+        ElementTransparency = 0.88,
+        StrokeTransparency = 0.15,
+        FallingEmojis = false,
+        SantaHat = false,
+    }
 }
 
+function Library:SetTheme(name)
+    local theme = self.Themes[name]
+    if theme then
+        table.clear(self.Theme)
+        for k, v in pairs(theme) do
+            self.Theme[k] = v
+        end
+    end
+end
+
+Library:SetTheme("Default")
 local T = Library.Theme
 
 local function New(class, props, parent)
@@ -47,7 +113,7 @@ end
 local function Stroke(obj, color, transparency)
     return New("UIStroke", {
         Color = color or T.Stroke,
-        Transparency = transparency or 0.4,
+        Transparency = transparency or T.StrokeTransparency or 0.4,
         ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
         LineJoinMode = Enum.LineJoinMode.Round,
         Thickness = 1,
@@ -303,7 +369,6 @@ function Library:SetCustomCursor(enabled)
         if self._cursorConn then
             pcall(function() self._cursorConn:Disconnect() end)
         end
-        local RunService = game:GetService("RunService")
         self._cursorConn = RunService.RenderStepped:Connect(function()
             if img and img.Parent then
                 local mp = UIS:GetMouseLocation()
@@ -364,7 +429,7 @@ function Library:Notify(text, duration)
         duration = duration or 4
     end
 
-    local entry = { Text = bodyText, Time = os.date("%H:%M:%S"), Id = #Library.Notifications + 1 }
+    local entry = { Text = bodyText, Title = titleText, Time = os.date("%H:%M:%S"), Id = #Library.Notifications + 1 }
     table.insert(Library.Notifications, 1, entry)
     if #Library.Notifications > 50 then table.remove(Library.Notifications) end
 
@@ -414,7 +479,7 @@ function Library:Notify(text, duration)
     body.TextWrapped = true
 
     table.insert(Library._activeToasts, card)
-    Tween(card, 0.3, { BackgroundTransparency = 0, Position = UDim2.new(1, -16, 0, startY) })
+    Tween(card, 0.3, { BackgroundTransparency = T.BgTransparency or 0, Position = UDim2.new(1, -16, 0, startY) })
     task.defer(layoutToasts)
 
     task.delay(duration, function()
@@ -435,6 +500,114 @@ function Library:Notify(text, duration)
         Library._notifViewer.Refresh()
     end
     return entry
+end
+
+local function ProfileCacheKey(value)
+    if type(value) == "table" then
+        return tostring(value.UserId or value.Id or value.userId or value.id
+            or value.Name or value.Username or value.name or value.username or "")
+    end
+    return tostring(value)
+end
+
+local function NormalizeProfileInput(value)
+    if type(value) == "table" then
+        return {
+            UserId      = value.UserId or value.Id or value.userId or value.id,
+            Name        = value.Name or value.Username or value.name or value.username,
+            DisplayName = value.DisplayName or value.displayName or value.Displayname,
+            Image       = value.Image or value.Avatar or value.image or value.avatar,
+        }
+    end
+    local num = tonumber(value)
+    return {
+        UserId = num,
+        Name   = (not num) and tostring(value) or nil,
+    }
+end
+
+local function FetchProfile(value, callback)
+    local key = ProfileCacheKey(value)
+    local cached = Library._userCache[key]
+    if cached then
+        if callback then callback(cached) end
+        return cached
+    end
+
+    if Library._userFetching[key] then
+        if callback then table.insert(Library._userFetching[key], callback) end
+        return nil
+    end
+
+    Library._userFetching[key] = callback and { callback } or {}
+
+    local initial = NormalizeProfileInput(value)
+
+    task.spawn(function()
+        local info = {
+            UserId      = initial.UserId,
+            Name        = initial.Name,
+            DisplayName = initial.DisplayName,
+            Image       = initial.Image,
+        }
+
+        if not info.UserId and info.Name and info.Name ~= "" then
+            local ok, id = pcall(function()
+                return Players:GetUserIdFromNameAsync(info.Name)
+            end)
+            if ok and id then info.UserId = id end
+        end
+
+        if info.UserId then
+            local plr = Players:GetPlayerByUserId(info.UserId)
+            if plr then
+                info.Name = plr.Name
+                info.DisplayName = plr.DisplayName
+            else
+                if not info.Name then
+                    local ok, name = pcall(function()
+                        return Players:GetNameFromUserIdAsync(info.UserId)
+                    end)
+                    if ok and name then info.Name = name end
+                end
+                if not info.DisplayName then info.DisplayName = info.Name end
+            end
+
+            if not info.Image then
+                local thumbOk, thumb = pcall(function()
+                    return Players:GetUserThumbnailAsync(
+                        info.UserId,
+                        Enum.ThumbnailType.HeadShot,
+                        Enum.ThumbnailSize.Size48x48
+                    )
+                end)
+                if thumbOk and thumb then info.Image = thumb end
+            end
+        end
+
+        info.Name        = info.Name        or key
+        info.DisplayName = info.DisplayName or info.Name
+
+        Library._userCache[key] = info
+
+        local callbacks = Library._userFetching[key]
+        Library._userFetching[key] = nil
+        if callbacks then
+            for _, cb in ipairs(callbacks) do
+                pcall(cb, info)
+            end
+        end
+    end)
+
+    return nil
+end
+
+function Library:GetProfile(value)
+    return Library._userCache[ProfileCacheKey(value)]
+end
+
+function Library:FetchProfile(value, callback)
+    return FetchProfile(value, callback)
 end
 
 local function BuildElements(holder, reg)
@@ -482,6 +655,7 @@ local function BuildElements(holder, reg)
             TextColor3 = T.Text,
             Size = UDim2.new(1, 0, 0, 34),
             BackgroundColor3 = T.Element,
+            BackgroundTransparency = T.ElementTransparency or 0,
             AutoButtonColor = false,
         }, holder)
         Corner(b, 6)
@@ -520,7 +694,8 @@ local function BuildElements(holder, reg)
             AnchorPoint = Vector2.new(1, 0.5),
             Position = UDim2.new(1, -8, 0.5, 0),
             Size = UDim2.fromOffset(20, 20),
-            BackgroundColor3 = Color3.fromRGB(16, 16, 16),
+            BackgroundColor3 = T.Element,
+            BackgroundTransparency = T.ElementTransparency or 0,
         }, row)
         Corner(box, 5)
         Stroke(box, T.Stroke, 0.4)
@@ -539,10 +714,10 @@ local function BuildElements(holder, reg)
             obj.Value = not not v
             Library.Flags[idx] = obj.Value
             if obj.Value then
-                Tween(box, 0.15, { BackgroundColor3 = Color3.fromRGB(45, 45, 45) })
+                Tween(box, 0.15, { BackgroundColor3 = T.Hover })
                 Tween(check, 0.15, { ImageTransparency = 0 })
             else
-                Tween(box, 0.15, { BackgroundColor3 = Color3.fromRGB(16, 16, 16) })
+                Tween(box, 0.15, { BackgroundColor3 = T.Element })
                 Tween(check, 0.15, { ImageTransparency = 1 })
             end
             if not silent then emit(obj, o, obj.Value) end
@@ -561,6 +736,7 @@ local function BuildElements(holder, reg)
                 Size = UDim2.fromOffset(30, 22),
                 AutomaticSize = Enum.AutomaticSize.X,
                 BackgroundColor3 = T.Element,
+                BackgroundTransparency = T.ElementTransparency or 0,
                 Text = "—",
                 TextSize = 11,
                 TextColor3 = T.SubText,
@@ -693,7 +869,8 @@ local function BuildElements(holder, reg)
             Text = "",
             Position = UDim2.fromOffset(6, 34),
             Size = UDim2.new(1, -12, 0, 5),
-            BackgroundColor3 = Color3.fromRGB(16, 16, 16),
+            BackgroundColor3 = T.Element,
+            BackgroundTransparency = T.ElementTransparency or 0,
             AutoButtonColor = false,
         }, row)
         Corner(bar, 3)
@@ -712,7 +889,7 @@ local function BuildElements(holder, reg)
             BackgroundColor3 = T.Accent,
         }, bar)
         Corner(knob, 6)
-        Stroke(knob, Color3.fromRGB(20, 20, 20), 0.25)
+        Stroke(knob, T.Stroke, 0.25)
 
         function obj:SetValue(v, silent)
             local mult = 10 ^ rnd
@@ -754,6 +931,7 @@ local function BuildElements(holder, reg)
     function api:AddDropdown(idx, o)
         o = o or {}
         local values = o.Values or {}
+        local profiles = o.Profiles == true
         local obj = {
             Value = o.Multi and {} or (o.Default or values[1]),
             Type = "Dropdown",
@@ -764,28 +942,25 @@ local function BuildElements(holder, reg)
             for _, v in ipairs(o.Default) do obj.Value[v] = true end
         end
 
+        local itemHeight = profiles and 44 or 28
+
         local row = New("Frame", {
             Size = UDim2.new(1, 0, 0, 0),
             AutomaticSize = Enum.AutomaticSize.Y,
+            BackgroundTransparency = 1,
         }, holder)
         List(row, 4)
 
-        local headWrap = New("Frame", {
-            Size = UDim2.new(1, 0, 0, 36),
-            BackgroundColor3 = T.Stroke,
-            ClipsDescendants = true,
-        }, row)
-        Corner(headWrap, 6)
-
         local head = New("TextButton", {
             Text = "",
-            Size = UDim2.new(1, -2, 1, -2),
-            Position = UDim2.fromOffset(1, 1),
+            Size = UDim2.new(1, 0, 0, 36),
             BackgroundColor3 = T.Element,
+            BackgroundTransparency = T.ElementTransparency or 0,
             AutoButtonColor = false,
             ClipsDescendants = true,
-        }, headWrap)
-        Corner(head, 5)
+        }, row)
+        Corner(head, 6)
+        Stroke(head, T.Stroke, 0.4)
         Connect(head.MouseEnter, function() Tween(head, 0.12, { BackgroundColor3 = Color3.fromRGB(50, 50, 50) }) end)
         Connect(head.MouseLeave, function() Tween(head, 0.12, { BackgroundColor3 = T.Element }) end)
 
@@ -793,12 +968,31 @@ local function BuildElements(holder, reg)
         titleLbl.Position = UDim2.fromOffset(10, 0)
         titleLbl.Size = UDim2.new(0.42, 0, 1, 0)
 
+        local currentAvatar = nil
+        if profiles then
+            currentAvatar = New("ImageLabel", {
+                BackgroundTransparency = 1,
+                AnchorPoint = Vector2.new(1, 0.5),
+                Position = UDim2.new(1, -32, 0.5, 0),
+                Size = UDim2.fromOffset(22, 22),
+                Image = "",
+                Visible = false,
+            }, head)
+            Corner(currentAvatar, 11)
+            Stroke(currentAvatar, T.Stroke, 0.4)
+        end
+
         local currentLbl = Label(head, "", 12, T.SubText)
-        currentLbl.AnchorPoint = Vector2.new(1, 0)
-        currentLbl.Position = UDim2.new(1, -32, 0, 0)
-        currentLbl.Size = UDim2.new(0.5, -20, 1, 0)
+        currentLbl.AnchorPoint = Vector2.new(1, 0.5)
+        if profiles then
+            currentLbl.Position = UDim2.new(1, -58, 0.5, 0)
+            currentLbl.Size     = UDim2.new(0.5, -68, 0, 16)
+        else
+            currentLbl.Position = UDim2.new(1, -32, 0.5, 0)
+            currentLbl.Size     = UDim2.new(0.5, -20, 0, 16)
+        end
         currentLbl.TextXAlignment = Enum.TextXAlignment.Right
-        currentLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        currentLbl.TextTruncate   = Enum.TextTruncate.AtEnd
 
         local arrow = New("ImageLabel", {
             BackgroundTransparency = 1,
@@ -811,24 +1005,25 @@ local function BuildElements(holder, reg)
 
         local listWrap = New("Frame", {
             Size = UDim2.new(1, 0, 0, 0),
-            BackgroundColor3 = T.Stroke,
+            BackgroundColor3 = T.Group,
+            BackgroundTransparency = T.BgTransparency or 0,
             ClipsDescendants = true,
             Visible = false,
             LayoutOrder = 2,
         }, row)
         Corner(listWrap, 6)
+        Stroke(listWrap, T.Stroke, 0.8)
 
         local listScroll = New("ScrollingFrame", {
-            Size = UDim2.new(1, -2, 1, -2),
-            Position = UDim2.fromOffset(1, 1),
-            BackgroundColor3 = T.Group,
+            Size = UDim2.new(1, 0, 1, 0),
+            BackgroundTransparency = 1,
             ScrollBarThickness = 3,
             ScrollBarImageColor3 = Color3.fromRGB(70, 70, 70),
             CanvasSize = UDim2.new(),
             AutomaticCanvasSize = Enum.AutomaticSize.Y,
             ScrollingDirection = Enum.ScrollingDirection.Y,
         }, listWrap)
-        Corner(listScroll, 5)
+        Corner(listScroll, 6)
         List(listScroll, 3)
         Pad(listScroll, 5, 5, 5, 5)
 
@@ -838,8 +1033,8 @@ local function BuildElements(holder, reg)
 
         local function computeListHeight()
             local count = #obj.Values
-            local h = count * 28 + math.max(0, count - 1) * 3 + 10
-            return math.clamp(h, 32, 220)
+            local h = count * itemHeight + math.max(0, count - 1) * 3 + 10
+            return math.clamp(h, 32, profiles and 320 or 220)
         end
 
         function state.close()
@@ -854,9 +1049,16 @@ local function BuildElements(holder, reg)
             Tween(arrow, 0.18, { Rotation = 0 })
         end
         function state.hitTest(pos)
-            return InRect(headWrap, pos) or (state.open and InRect(listWrap, pos))
+            return InRect(head, pos) or (state.open and InRect(listWrap, pos))
         end
         table.insert(Library._dropdowns, state)
+
+        local function valueLabel(v)
+            if type(v) == "table" then
+                return v.DisplayName or v.Name or v.Username or tostring(v.UserId or "?")
+            end
+            return tostring(v)
+        end
 
         local function getText()
             if o.Multi then
@@ -864,9 +1066,37 @@ local function BuildElements(holder, reg)
                 for _, v in ipairs(obj.Values) do
                     if obj.Value[v] then table.insert(sel, v) end
                 end
+                if profiles then
+                    if #sel == 0 then return "None" end
+                    if #sel == 1 then
+                        local info = Library:GetProfile(sel[1])
+                        return (info and (info.DisplayName or info.Name)) or valueLabel(sel[1])
+                    end
+                    return #sel .. " selected"
+                end
                 return #sel > 0 and table.concat(sel, ", ") or "None"
             end
+            if profiles then
+                local info = Library:GetProfile(obj.Value)
+                if info then return info.DisplayName or info.Name or valueLabel(obj.Value) end
+                return valueLabel(obj.Value or "None")
+            end
             return tostring(obj.Value or "None")
+        end
+
+        local function updateHeaderAvatar()
+            if not currentAvatar then return end
+            if o.Multi then
+                currentAvatar.Visible = false
+                return
+            end
+            local info = Library:GetProfile(obj.Value)
+            if info and info.Image then
+                currentAvatar.Image = info.Image
+                currentAvatar.Visible = true
+            else
+                currentAvatar.Visible = false
+            end
         end
 
         local function snapshot()
@@ -878,14 +1108,22 @@ local function BuildElements(holder, reg)
 
         local function refresh()
             currentLbl.Text = getText()
+            updateHeaderAvatar()
             Library.Flags[idx] = obj.Value
+
             for v, btn in pairs(items) do
                 local on = o.Multi and obj.Value[v] or (obj.Value == v)
-                local color = on and T.Accent or T.SubText
-                local lbl = btn:FindFirstChildWhichIsA("TextLabel")
-                if lbl then Tween(lbl, 0.12, { TextColor3 = color }) end
-                local icon = btn:FindFirstChildWhichIsA("ImageLabel")
-                if icon then Tween(icon, 0.12, { ImageColor3 = color }) end
+                if profiles then
+                    local nameLbl = btn:FindFirstChild("NameLbl")
+                    if nameLbl then
+                        Tween(nameLbl, 0.12, { TextColor3 = on and T.Accent or T.Text })
+                    end
+                else
+                    local lbl = btn:FindFirstChildWhichIsA("TextLabel")
+                    if lbl then Tween(lbl, 0.12, { TextColor3 = on and T.Accent or T.SubText }) end
+                    local icon = btn:FindFirstChildWhichIsA("ImageLabel")
+                    if icon then Tween(icon, 0.12, { ImageColor3 = on and T.Accent or T.SubText }) end
+                end
             end
         end
 
@@ -893,42 +1131,89 @@ local function BuildElements(holder, reg)
             for _, b in pairs(items) do b:Destroy() end
             items = {}
             for i, v in ipairs(obj.Values) do
-                local b = New("TextButton", {
+                local btn = New("TextButton", {
                     Text = "",
-                    Size = UDim2.new(1, 0, 0, 28),
+                    Size = UDim2.new(1, 0, 0, itemHeight),
                     BackgroundColor3 = T.Element,
                     BackgroundTransparency = 1,
                     AutoButtonColor = false,
                     ClipsDescendants = true,
                     LayoutOrder = i,
                 }, listScroll)
-                Corner(b, 5)
-                
-                local iconOffset = 8
-                if o.ValueImages and o.ValueImages[v] then
-                    local iconImg = New("ImageLabel", {
+                Corner(btn, 5)
+
+                if profiles then
+                    local avatar = New("ImageLabel", {
+                        Name = "AvatarImg",
                         BackgroundTransparency = 1,
-                        Position = UDim2.new(0, 8, 0.5, 0),
                         AnchorPoint = Vector2.new(0, 0.5),
-                        Size = UDim2.fromOffset(16, 16),
-                        ImageColor3 = T.SubText,
-                        ImageTransparency = 1,
-                    }, b)
-                    if Library:ApplyIcon(iconImg, o.ValueImages[v]) then
-                        iconOffset = 32
-                    else
-                        iconImg:Destroy()
+                        Position = UDim2.new(0, 8, 0.5, 0),
+                        Size = UDim2.fromOffset(32, 32),
+                        Image = "",
+                    }, btn)
+                    Corner(avatar, 16)
+                    Stroke(avatar, T.Stroke, 0.5)
+
+                    local nameLbl = Label(btn, valueLabel(v), 13, T.Text)
+                    nameLbl.Name = "NameLbl"
+                    nameLbl.Position = UDim2.fromOffset(48, 5)
+                    nameLbl.Size = UDim2.new(1, -56, 0, 16)
+                    nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+                    nameLbl.Font = Enum.Font.GothamMedium
+
+                    local userLbl = Label(btn, "", 11, Color3.fromRGB(120, 120, 120))
+                    userLbl.Name = "UserLbl"
+                    userLbl.Position = UDim2.fromOffset(48, 23)
+                    userLbl.Size = UDim2.new(1, -56, 0, 14)
+                    userLbl.TextTruncate = Enum.TextTruncate.AtEnd
+
+                    local function applyInfo(info)
+                        if not avatar or not avatar.Parent then return end
+                        if info.Image then avatar.Image = info.Image end
+                        nameLbl.Text = info.DisplayName or info.Name or valueLabel(v)
+                        userLbl.Text = info.Name and ("@" .. info.Name) or ""
+                        local on = o.Multi and obj.Value[v] or (obj.Value == v)
+                        nameLbl.TextColor3 = on and T.Accent or T.Text
                     end
+
+                    local cached = Library:GetProfile(v)
+                    if cached then
+                        applyInfo(cached)
+                    else
+                        FetchProfile(v, function(info)
+                            applyInfo(info)
+                            if not o.Multi and obj.Value == v then
+                                task.defer(refresh)
+                            end
+                        end)
+                    end
+                else
+                    local iconOffset = 8
+                    if o.ValueImages and o.ValueImages[v] then
+                        local iconImg = New("ImageLabel", {
+                            BackgroundTransparency = 1,
+                            Position = UDim2.new(0, 8, 0.5, 0),
+                            AnchorPoint = Vector2.new(0, 0.5),
+                            Size = UDim2.fromOffset(16, 16),
+                            ImageColor3 = T.SubText,
+                            ImageTransparency = 1,
+                        }, btn)
+                        if Library:ApplyIcon(iconImg, o.ValueImages[v]) then
+                            iconOffset = 32
+                        else
+                            iconImg:Destroy()
+                        end
+                    end
+
+                    local lbl = Label(btn, tostring(v), 13, T.SubText)
+                    lbl.Position = UDim2.fromOffset(iconOffset, 0)
+                    lbl.Size = UDim2.new(1, -iconOffset - 8, 1, 0)
+                    lbl.TextTruncate = Enum.TextTruncate.AtEnd
                 end
 
-                local lbl = Label(b, tostring(v), 13, T.SubText)
-                lbl.Position = UDim2.fromOffset(iconOffset, 0)
-                lbl.Size = UDim2.new(1, -iconOffset - 8, 1, 0)
-                lbl.TextTruncate = Enum.TextTruncate.AtEnd
-
-                Connect(b.MouseEnter, function() Tween(b, 0.1, { BackgroundTransparency = 0.55 }) end)
-                Connect(b.MouseLeave, function() Tween(b, 0.1, { BackgroundTransparency = 1 }) end)
-                Connect(b.MouseButton1Click, function()
+                Connect(btn.MouseEnter, function() Tween(btn, 0.1, { BackgroundTransparency = 0.55 }) end)
+                Connect(btn.MouseLeave, function() Tween(btn, 0.1, { BackgroundTransparency = 1 }) end)
+                Connect(btn.MouseButton1Click, function()
                     if o.Multi then
                         obj.Value[v] = not obj.Value[v] or nil
                     else
@@ -938,7 +1223,7 @@ local function BuildElements(holder, reg)
                     refresh()
                     emit(obj, o, snapshot())
                 end)
-                items[v] = b
+                items[v] = btn
             end
             if state.open then
                 listWrap.Size = UDim2.new(1, 0, 0, computeListHeight())
@@ -974,6 +1259,11 @@ local function BuildElements(holder, reg)
                 end
             else
                 obj.Value = v
+            end
+            if profiles and not o.Multi and not Library:GetProfile(v) then
+                FetchProfile(v, function()
+                    if obj.Value == v then task.defer(refresh) end
+                end)
             end
             refresh()
             if not silent then emit(obj, o, snapshot()) end
@@ -1023,6 +1313,7 @@ local function BuildElements(holder, reg)
             Position = UDim2.new(1, -8, 0.5, 0),
             Size = UDim2.fromOffset(96, 24),
             BackgroundColor3 = T.Element,
+            BackgroundTransparency = T.ElementTransparency or 0,
             Text = "None",
             TextSize = 12,
             TextColor3 = T.SubText,
@@ -1122,6 +1413,7 @@ local function BuildElements(holder, reg)
         local inputWrap = New("Frame", {
             Size = UDim2.new(1, 0, 0, 34),
             BackgroundColor3 = T.Element,
+            BackgroundTransparency = T.ElementTransparency or 0,
             ClipsDescendants = true,
             LayoutOrder = 2,
         }, row)
@@ -1188,13 +1480,80 @@ function Library:AddWindow(cfg)
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(0.5, 0.5),
         Size = UDim2.fromOffset(720, 520),
-        BackgroundColor3 = T.Bg,
+        BackgroundColor3 = T.BackgroundGradient and Color3.new(1,1,1) or T.Bg,
         BackgroundTransparency = T.Transparency,
         ClipsDescendants = false,
     }, gui)
     Corner(main, 10)
     Stroke(main, T.Stroke, 0.45)
     Win.Main = main
+
+    if T.BackgroundGradient then
+        New("UIGradient", T.BackgroundGradient, main)
+    end
+
+    if T.FallingEmojis then
+        local bgFrame = New("Frame", {
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            ClipsDescendants = true,
+            ZIndex = 0,
+        }, main)
+        Corner(bgFrame, 10)
+
+        local iconNames = {"snowflake", "gift", "tree-pine", "snowman", "star", "sparkles"}
+        local particles = {}
+        
+        local lanes = {}
+        for i = 1, 40 do
+            table.insert(lanes, i / 40)
+        end
+        for i = #lanes, 2, -1 do
+            local j = math.random(i)
+            lanes[i], lanes[j] = lanes[j], lanes[i]
+        end
+
+        for i = 1, 25 do
+            local xPos = lanes[i]
+            local iconName = iconNames[math.random(1, #iconNames)]
+            local size = math.random(12, 16)
+            local lbl = New("ImageLabel", {
+                BackgroundTransparency = 1,
+                Size = UDim2.fromOffset(size, size),
+                ImageColor3 = Color3.fromRGB(255, 255, 255),
+                ImageTransparency = math.random(40, 70) / 100,
+                Position = UDim2.fromScale(xPos, math.random(-100, 100) / 100),
+                Rotation = math.random(0, 360),
+                ZIndex = 0,
+            }, bgFrame)
+            Library:ApplyIcon(lbl, iconName)
+            
+            table.insert(particles, {
+                label = lbl,
+                y = lbl.Position.Y.Scale,
+                x = xPos,
+                speed = math.random(3, 7) / 100,
+                rotSpeed = math.random(-2, 2) / 10,
+            })
+        end
+
+        Connect(RunService.RenderStepped, function(dt)
+            for _, p in ipairs(particles) do
+                local lbl = p.label
+                if lbl and lbl.Parent then
+                    p.y = p.y + p.speed * dt
+                    if p.y > 1.1 then
+                        p.y = -0.1
+                        lbl.Rotation = math.random(0, 360)
+                        p.speed = math.random(3, 7) / 100
+                    else
+                        lbl.Rotation = lbl.Rotation + p.rotSpeed
+                    end
+                    lbl.Position = UDim2.fromScale(p.x, p.y)
+                end
+            end
+        end)
+    end
 
     local topBar = New("Frame", {
         Size = UDim2.new(1, 0, 0, 52),
@@ -1208,11 +1567,24 @@ function Library:AddWindow(cfg)
         Size = UDim2.fromOffset(0, 44),
         AutomaticSize = Enum.AutomaticSize.X,
         BackgroundColor3 = T.Group,
+        BackgroundTransparency = T.BgTransparency or 0,
         ClipsDescendants = true,
     }, topBar)
     Corner(titlePill, 8)
     Stroke(titlePill, T.Stroke, 0.4)
     Pad(titlePill, 12, 0, 14, 0)
+
+    if T.SantaHat then
+        New("ImageLabel", {
+            BackgroundTransparency = 1,
+            AnchorPoint = Vector2.new(0.5, 1),
+            Position = UDim2.new(0, 16, 0.5, -22),
+            Size = UDim2.fromOffset(40, 40),
+            Image = "rbxassetid://13119488120",
+            Rotation = -15,
+            ZIndex = 5,
+        }, topBar)
+    end
 
     local titleLayout = List(titlePill, 8, Enum.FillDirection.Horizontal)
     titleLayout.VerticalAlignment = Enum.VerticalAlignment.Center
@@ -1296,6 +1668,7 @@ function Library:AddWindow(cfg)
     local bellBlock = New("TextButton", {
         Size = UDim2.fromOffset(42, 42),
         BackgroundColor3 = T.Group,
+        BackgroundTransparency = T.BgTransparency or 0,
         Text = "",
         AutoButtonColor = false,
     }, rightIcons)
@@ -1309,13 +1682,11 @@ function Library:AddWindow(cfg)
         ImageColor3 = T.Text,
     }, bellBlock)
     Library:ApplyIcon(bellImg, "bell")
-    Connect(bellBlock.MouseButton1Click, function()
-        Library:Notify("Notifications appear as toasts on the right.", 3)
-    end)
 
     local closeBtn = New("TextButton", {
         Size = UDim2.fromOffset(42, 42),
         BackgroundColor3 = T.Group,
+        BackgroundTransparency = T.BgTransparency or 0,
         Text = "",
         AutoButtonColor = false,
     }, rightIcons)
@@ -1341,6 +1712,112 @@ function Library:AddWindow(cfg)
         BackgroundTransparency = 1,
         Size = UDim2.fromScale(1, 1),
     }, content)
+
+    local notifyViewer = New("Frame", {
+        Name = "NotifyViewer",
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundColor3 = T.Bg,
+        BackgroundTransparency = T.BgTransparency or 0.05,
+        Visible = false,
+        ZIndex = 10,
+    }, main)
+    Corner(notifyViewer, 10)
+    Stroke(notifyViewer, T.Stroke, 0.45)
+
+    local nvHeader = New("Frame", {
+        Size = UDim2.new(1, 0, 0, 52),
+        BackgroundTransparency = 1,
+        ZIndex = 11,
+    }, notifyViewer)
+
+    local nvTitle = Label(nvHeader, "Notify Viewer", 15, T.Text, Enum.Font.GothamBold)
+    nvTitle.Position = UDim2.fromOffset(16, 0)
+    nvTitle.Size = UDim2.new(1, -60, 1, 0)
+
+    local nvClose = New("TextButton", {
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -16, 0.5, 0),
+        Size = UDim2.fromOffset(24, 24),
+        BackgroundTransparency = 1,
+        Text = "",
+        ZIndex = 12,
+    }, nvHeader)
+    local nvCloseIcon = New("ImageLabel", {
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        ImageColor3 = T.SubText,
+        ZIndex = 12,
+    }, nvClose)
+    Library:ApplyIcon(nvCloseIcon, "x")
+
+    local nvDivider = New("Frame", {
+        Position = UDim2.fromOffset(0, 52),
+        Size = UDim2.new(1, 0, 0, 1),
+        BackgroundColor3 = T.Stroke,
+        BackgroundTransparency = 0.5,
+        ZIndex = 11,
+    }, notifyViewer)
+
+    local nvScroll = New("ScrollingFrame", {
+        Position = UDim2.fromOffset(0, 53),
+        Size = UDim2.new(1, 0, 1, -53),
+        BackgroundTransparency = 1,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = Color3.fromRGB(70, 70, 70),
+        CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+        ZIndex = 11,
+    }, notifyViewer)
+    List(nvScroll, 8)
+    Pad(nvScroll, 16, 8, 16, 16)
+
+    local function refreshNotifViewer()
+        for _, child in ipairs(nvScroll:GetChildren()) do
+            if child:IsA("GuiObject") then child:Destroy() end
+        end
+        for _, entry in ipairs(Library.Notifications) do
+            local item = New("Frame", {
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundColor3 = T.Group,
+                BackgroundTransparency = T.BgTransparency or 0,
+                ZIndex = 12,
+            }, nvScroll)
+            Corner(item, 6)
+            Stroke(item, T.Stroke, 0.5)
+            Pad(item, 10, 8, 10, 8)
+            List(item, 4)
+
+            local timeLbl = Label(item, entry.Time or "", 11, T.SubText)
+            timeLbl.Size = UDim2.new(1, 0, 0, 14)
+            timeLbl.ZIndex = 13
+
+            local textLbl = Label(item, entry.Text or "", 13, T.Text)
+            textLbl.Size = UDim2.new(1, 0, 0, 0)
+            textLbl.AutomaticSize = Enum.AutomaticSize.Y
+            textLbl.TextWrapped = true
+            textLbl.ZIndex = 13
+        end
+    end
+
+    Library._notifViewer = { Refresh = refreshNotifViewer }
+
+    function Win:ToggleNotifyViewer(state)
+        if state == nil then state = not notifyViewer.Visible end
+        notifyViewer.Visible = state
+        if state then
+            refreshNotifViewer()
+        end
+    end
+
+    Connect(nvClose.MouseButton1Click, function()
+        Win:ToggleNotifyViewer(false)
+    end)
+
+    Connect(bellBlock.MouseButton1Click, function()
+        Win:ToggleNotifyViewer()
+    end)
 
     New("Frame", {
         Name = "FooterDivider",
@@ -1438,6 +1915,7 @@ function Library:AddWindow(cfg)
             Text = "",
             Size = UDim2.fromOffset(42, 42),
             BackgroundColor3 = T.Bg,
+            BackgroundTransparency = T.BgTransparency or 0,
             AutoButtonColor = false,
             LayoutOrder = #Win.Tabs + 1,
         }, tabList)
@@ -1500,6 +1978,7 @@ function Library:AddWindow(cfg)
                 Size = UDim2.new(1, 0, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y,
                 BackgroundColor3 = T.Group,
+                BackgroundTransparency = T.BgTransparency or 0,
                 LayoutOrder = #Tab.Groups + 1,
             }, Tab.Cols[side])
             Corner(box, 8)
@@ -1563,6 +2042,7 @@ function Library:AddWindow(cfg)
                 Size = UDim2.new(1, 0, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y,
                 BackgroundColor3 = T.Group,
+                BackgroundTransparency = T.BgTransparency or 0,
                 LayoutOrder = #Tab.Groups + #Tab.Tabboxes + 1,
             }, Tab.Cols[side])
             Corner(box, 8)
@@ -1824,6 +2304,7 @@ function SaveManager:BuildConfigSection(tab, side)
     local inputRow = New("Frame", {
         Size = UDim2.new(1, 0, 0, 34),
         BackgroundColor3 = T.Element,
+        BackgroundTransparency = T.ElementTransparency or 0,
         ClipsDescendants = true,
     }, group.Container)
     Corner(inputRow, 6)
@@ -1909,6 +2390,7 @@ function Library:AddFloatingButton(cfg)
         Position = cfg.Position or UDim2.new(1, -16 - size, 1, -16 - size),
         Size = UDim2.fromOffset(size, size),
         BackgroundColor3 = T.Group,
+        BackgroundTransparency = T.BgTransparency or 0,
         Text = "",
         AutoButtonColor = false,
     }, floatGui)
