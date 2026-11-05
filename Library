@@ -1492,57 +1492,6 @@ function Library:AddWindow(cfg)
         New("UIGradient", T.BackgroundGradient, main)
     end
 
-    -- Custom Background Support
-    if cfg.BackgroundVideo or cfg.BackgroundImage or cfg.BackgroundURL then
-        local bgFrame = New("Frame", {
-            Name = "CustomBackgroundContainer",
-            Size = UDim2.fromScale(1, 1),
-            BackgroundTransparency = 1,
-            ClipsDescendants = true,
-            ZIndex = 0,
-        }, main)
-        Corner(bgFrame, 10)
-
-        local bgTransparency = cfg.BackgroundTransparency or 0
-
-        if cfg.BackgroundVideo then
-            local video = Instance.new("VideoFrame")
-            video.Name = "CustomVideoBackground"
-            video.Size = UDim2.fromScale(1, 1)
-            video.BackgroundTransparency = bgTransparency
-            video.Video = cfg.BackgroundVideo
-            video.Looped = true
-            video.Playing = true
-            video.Muted = true
-            video.ZIndex = 1
-            video.Parent = bgFrame
-            Win.BackgroundVideo = video
-        elseif cfg.BackgroundImage then
-            local img = New("ImageLabel", {
-                Name = "CustomImageBackground",
-                Size = UDim2.fromScale(1, 1),
-                BackgroundTransparency = 1,
-                ImageTransparency = bgTransparency,
-                Image = cfg.BackgroundImage,
-                ZIndex = 1,
-            }, bgFrame)
-            local url = ResolveImage(cfg.BackgroundImage)
-            if url then img.Image = url end
-            Win.BackgroundImage = img
-        elseif cfg.BackgroundURL then
-            local img = New("ImageLabel", {
-                Name = "CustomURLBackground",
-                Size = UDim2.fromScale(1, 1),
-                BackgroundTransparency = 1,
-                ImageTransparency = bgTransparency,
-                ZIndex = 1,
-            }, bgFrame)
-            local url = ResolveImage(cfg.BackgroundURL)
-            if url then img.Image = url end
-            Win.BackgroundImage = img
-        end
-    end
-
     if T.FallingEmojis then
         local bgFrame = New("Frame", {
             Size = UDim2.fromScale(1, 1),
@@ -2435,6 +2384,7 @@ function Library:AddFloatingButton(cfg)
         }, parent)
     end
 
+    -- FIX: Destroy existing floating button to prevent duplication when UI is rebuilt
     local existingBtn = floatGui:FindFirstChild("UILibFloatingBtn")
     if existingBtn then
         existingBtn:Destroy()
