@@ -4,7 +4,7 @@ local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 
 local Library = {
-    _version = "2.2",
+    _version = "2.3",
     Flags = {},
     Options = {},
     Windows = {},
@@ -12,6 +12,7 @@ local Library = {
     Notifications = {},
     _dropdowns = {},
     _listening = false,
+    _listeningStart = nil,
     _notifViewer = nil,
     IconCache = {},
     Theme = {
@@ -298,7 +299,7 @@ function Library:SetCustomCursor(enabled)
             }, curGui)
         end
         self._cursorImage = img
-        UIS.MouseIconEnabled = false
+        pcall(function() UIS.MouseIconEnabled = false end)
         if self._cursorConn then
             pcall(function() self._cursorConn:Disconnect() end)
         end
@@ -310,7 +311,7 @@ function Library:SetCustomCursor(enabled)
             end
         end)
     else
-        UIS.MouseIconEnabled = true
+        pcall(function() UIS.MouseIconEnabled = true end)
         if self._cursorConn then
             pcall(function() self._cursorConn:Disconnect() end)
             self._cursorConn = nil
@@ -318,6 +319,17 @@ function Library:SetCustomCursor(enabled)
         if self._cursorImage then
             pcall(function() self._cursorImage.Parent:Destroy() end)
             self._cursorImage = nil
+        end
+    end
+end
+
+function Library:SetDPIScale(v)
+    local n = tonumber(v)
+    if not n then return end
+    local scale = n > 10 and (n / 100) or n
+    for _, w in ipairs(self.Windows) do
+        if type(w.SetDPIScale) == "function" then
+            pcall(function() w:SetDPIScale(scale) end)
         end
     end
 end
@@ -415,15 +427,34 @@ local function BuildElements(holder, reg)
     local api = {}
 
     function api:AddLabel(text)
-        local l = Label(holder, text, 13, T.SubText)
+        local l = Label(holder, tostring(text or ""), 13, T.SubText)
         l.Size = UDim2.new(1, 0, 0, 0)
         l.AutomaticSize = Enum.AutomaticSize.Y
         l.TextWrapped = true
         Pad(l, 4, 2, 4, 2)
-        return {
-            SetText = function(_, new) l.Text = new end,
-            OnChanged = function(self) return self end,
+        local obj = {
+            Type    = "Label",
+            Value   = tostring(text or ""),
+            Callback = nil,
+            TextLabel = l,
         }
+        obj._listeners = {}
+        function obj:SetText(new)
+            self.Value = tostring(new or "")
+            l.Text = self.Value
+            if type(self.Callback) == "function" then
+                safeCall(self.Callback, self.Value)
+            end
+            for _, fn in ipairs(self._listeners or {}) do
+                safeCall(fn, self.Value)
+            end
+        end
+        function obj:GetText() return self.Value end
+        function obj:OnChanged(fn)
+            if type(fn) == "function" then table.insert(self._listeners, fn) end
+            return self
+        end
+        return obj
     end
 
     function api:AddButton(text, callback)
@@ -862,11 +893,24 @@ local function BuildElements(holder, reg)
             end
         end
 
+        local function stopListening(resetText)
+            listening = false
+            Library._listening = false
+            Library._listeningStart = nil
+            if resetText then refreshText() end
+        end
+
         function obj:SetValue(v, silent)
             obj.Value = v
             Library.Flags[idx] = v
             refreshText()
             if not silent then emit(obj, o, v) end
+            if idx == "MenuKeybind" and typeof(v) == "EnumItem" and v ~= Enum.KeyCode.Unknown then
+                for _, w in ipairs(Library.Windows) do
+                    if w.ToggleKey ~= nil then w.ToggleKey = v end
+                    if w._win and w._win.ToggleKey ~= nil then w._win.ToggleKey = v end
+                end
+            end
         end
 
         Connect(keyBtn.MouseButton1Click, function()
@@ -876,13 +920,6 @@ local function BuildElements(holder, reg)
             keyBtn.Text = "..."
             keyBtn.TextColor3 = T.Accent
         end)
-
-        local function stopListening(resetText)
-            listening = false
-            Library._listening = false
-            Library._listeningStart = nil
-            if resetText then refreshText() end
-        end
 
         Connect(UIS.InputBegan, function(input, gameProcessed)
             if not listening then return end
@@ -954,17 +991,13 @@ local function BuildElements(holder, reg)
             TextXAlignment = Enum.TextXAlignment.Left,
         }, inputWrap)
         Pad(box, 10, 0, 10, 0)
+
         function obj:SetValue(v, silent)
-            obj.Value = v
-            Library.Flags[idx] = v
-            refreshText()
-            if not silent then emit(obj, o, v) end
-            if idx == "MenuKeybind" and typeof(v) == "EnumItem" and v ~= Enum.KeyCode.Unknown then
-                for _, w in ipairs(Library.Windows) do
-                    if w.ToggleKey ~= nil then w.ToggleKey = v end
-                    if w._win and w._win.ToggleKey ~= nil then w._win.ToggleKey = v end
-                end
-            end
+            local str = tostring(v or "")
+            obj.Value = str
+            if box.Text ~= str then box.Text = str end
+            Library.Flags[idx] = str
+            if not silent then emit(obj, o, str) end
         end
 
         Connect(box.FocusLost, function()
