@@ -2182,10 +2182,18 @@ function SaveManager:Save(name)
             elseif opt.Type == "Dropdown" then
                 if type(opt.Value) == "table" then
                     local list = {}
-                    for k, v in pairs(opt.Value) do if v then table.insert(list, k) end end
+                    for k, v in pairs(opt.Value) do 
+                        if v then 
+                            if typeof(k) == "Instance" then
+                                table.insert(list, k.Name)
+                            else
+                                table.insert(list, k) 
+                            end
+                        end 
+                    end
                     data[idx] = list
                 else
-                    data[idx] = opt.Value
+                    data[idx] = typeof(opt.Value) == "Instance" and opt.Value.Name or opt.Value
                 end
             end
         end
