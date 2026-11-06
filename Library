@@ -1434,6 +1434,8 @@ local function BuildElements(holder, reg)
         }, inputWrap)
         Pad(box, 10, 0, 10, 0)
 
+        obj.TextBox = box
+
         function obj:SetValue(v, silent)
             local str = tostring(v or "")
             obj.Value = str
@@ -2184,16 +2186,14 @@ function SaveManager:Save(name)
                     local list = {}
                     for k, v in pairs(opt.Value) do 
                         if v then 
-                            if typeof(k) == "Instance" then
-                                table.insert(list, k.Name)
-                            else
-                                table.insert(list, k) 
+                            if typeof(k) ~= "Instance" then
+                                table.insert(list, k)
                             end
                         end 
                     end
                     data[idx] = list
-                else
-                    data[idx] = typeof(opt.Value) == "Instance" and opt.Value.Name or opt.Value
+                elseif typeof(opt.Value) ~= "Instance" then
+                    data[idx] = opt.Value
                 end
             end
         end
@@ -2291,14 +2291,25 @@ function SaveManager:BuildConfigSection(tab, side)
 
     local function refreshList()
         local opt = Library.Options.ConfigList
-        if opt and opt.SetValues then opt:SetValues(self:ListConfigs()) end
+        if opt and opt.SetValues then 
+            opt:SetValues(self:ListConfigs()) 
+            if selectedConfig then
+                opt:SetValue(selectedConfig)
+            end
+        end
     end
 
     group:AddDropdown("ConfigList", {
         Text = "Configs",
         Values = self:ListConfigs(),
         Default = nil,
-        Callback = function(v) selectedConfig = v end,
+        Callback = function(v) 
+            selectedConfig = v 
+            local input = Library.Options.ConfigNameInput
+            if input and input.TextBox then
+                input.TextBox.Text = v or ""
+            end
+        end,
     })
 
     group:AddInput("ConfigNameInput", {
@@ -2316,40 +2327,57 @@ function SaveManager:BuildConfigSection(tab, side)
         local input = Library.Options.ConfigNameInput
         local typed = ""
         if input then
-            typed = tostring(input.Value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+            if input.TextBox and input.TextBox.Text then
+                typed = tostring(input.TextBox.Text):gsub("^%s+", ""):gsub("%s+$", "")
+            else
+                typed = tostring(input.Value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+            end
         end
         if typed ~= "" then return typed end
         return selectedConfig
     end
 
-    group:AddButton("Save", function()
+    group:AddButton("Add / Save", function()
         local name = getName()
-        if not name or name == "" then Library:Notify("Select or enter a name") return end
+        if not name or name == "" then 
+            Library:Notify("Enter a config name first!") 
+            return 
+        end
         if self:Save(name) then
-            refreshList()
             selectedConfig = name
-            local opt = Library.Options.ConfigList
-            if opt and opt.SetValue then pcall(function() opt:SetValue(name) end) end
+            refreshList()
         end
     end)
 
     group:AddButton("Load", function()
         local name = getName()
-        if not name or name == "" then Library:Notify("Select or enter a name") return end
+        if not name or name == "" then 
+            Library:Notify("Select or enter a name") 
+            return 
+        end
         self:Load(name)
     end)
 
     group:AddButton("Delete", function()
         local name = getName()
-        if not name or name == "" then Library:Notify("Select or enter a name") return end
+        if not name or name == "" then 
+            Library:Notify("Select or enter a name") 
+            return 
+        end
         self:Delete(name)
-        if self:GetAutoload() == name then self:RemoveAutoload() end
+        if self:GetAutoload() == name then 
+            self:RemoveAutoload() 
+        end
+        selectedConfig = nil
         refreshList()
     end)
 
     group:AddButton("Set AutoLoad", function()
         local name = getName()
-        if not name or name == "" then Library:Notify("Select or enter a name") return end
+        if not name or name == "" then 
+            Library:Notify("Select or enter a name") 
+            return 
+        end
         self:SetAutoload(name)
     end)
 
