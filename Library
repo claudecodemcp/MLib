@@ -415,7 +415,7 @@ function Library:Notify(text, duration)
     local isTable = type(text) == "table"
     local titleText = "Notification"
     local bodyText = ""
-    
+
     if isTable then
         titleText = tostring(text.Title or text.title or "Notification")
         bodyText = tostring(text.Description or text.description or text.Content or text.content or text.Message or text.message or "")
@@ -1503,7 +1503,7 @@ function Library:AddWindow(cfg)
 
         local iconNames = {"snowflake", "gift", "tree-pine", "snowman", "star", "sparkles"}
         local particles = {}
-        
+
         local lanes = {}
         for i = 1, 40 do
             table.insert(lanes, i / 40)
@@ -1527,7 +1527,7 @@ function Library:AddWindow(cfg)
                 ZIndex = 0,
             }, bgFrame)
             Library:ApplyIcon(lbl, iconName)
-            
+
             table.insert(particles, {
                 label = lbl,
                 y = lbl.Position.Y.Scale,
@@ -2279,17 +2279,11 @@ end
 function SaveManager:BuildConfigSection(tab, side)
     side = side or "Right"
     local group = tab:AddGroup("Config", side, "save")
-    local configName = ""
     local selectedConfig = nil
 
     local function refreshList()
         local opt = Library.Options.ConfigList
         if opt and opt.SetValues then opt:SetValues(self:ListConfigs()) end
-    end
-
-    local function resolveName()
-        if configName ~= "" then return configName end
-        return selectedConfig
     end
 
     group:AddDropdown("ConfigList", {
@@ -2298,67 +2292,62 @@ function SaveManager:BuildConfigSection(tab, side)
         Default = nil,
         Callback = function(v) selectedConfig = v end,
     })
-    group:AddButton("Refresh List", function() refreshList() Library:Notify("Refreshed") end)
-    group:AddLabel("Config name:")
 
-    local inputRow = New("Frame", {
-        Size = UDim2.new(1, 0, 0, 34),
-        BackgroundColor3 = T.Element,
-        BackgroundTransparency = T.ElementTransparency or 0,
-        ClipsDescendants = true,
-    }, group.Container)
-    Corner(inputRow, 6)
-    Stroke(inputRow, T.Stroke, 0.55)
+    group:AddInput("ConfigNameInput", {
+        Text = "Config name",
+        Default = "",
+        Placeholder = "",
+    })
 
-    local textBox = New("TextBox", {
-        BackgroundTransparency = 1,
-        Size = UDim2.fromScale(1, 1),
-        PlaceholderText = "config name...",
-        PlaceholderColor3 = T.SubText,
-        TextColor3 = T.Text,
-        TextSize = 13,
-        Font = Enum.Font.Gotham,
-        ClearTextOnFocus = false,
-        TextXAlignment = Enum.TextXAlignment.Left,
-    }, inputRow)
-    Pad(textBox, 10, 0, 10, 0)
+    group:AddButton("Refresh", function()
+        refreshList()
+        Library:Notify("Refreshed")
+    end)
 
-    Connect(textBox:GetPropertyChangedSignal("Text"), function() configName = textBox.Text end)
+    local function getName()
+        local input = Library.Options.ConfigNameInput
+        local typed = ""
+        if input then
+            typed = tostring(input.Value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+        end
+        if typed ~= "" then return typed end
+        return selectedConfig
+    end
 
-    group:AddButton("Add", function()
-        local name = resolveName()
-        if not name or name == "" then Library:Notify("Enter a name") return end
+    group:AddButton("Save", function()
+        local name = getName()
+        if not name or name == "" then Library:Notify("Select or enter a name") return end
         if self:Save(name) then
             refreshList()
+            selectedConfig = name
             local opt = Library.Options.ConfigList
             if opt and opt.SetValue then pcall(function() opt:SetValue(name) end) end
-            selectedConfig = name
         end
     end)
-    group:AddButton("Overwrite", function()
-        local name = selectedConfig or resolveName()
-        if not name or name == "" then Library:Notify("Select a config") return end
-        self:Save(name)
-        refreshList()
-    end)
+
     group:AddButton("Load", function()
-        local name = selectedConfig or resolveName()
-        if not name or name == "" then Library:Notify("Select a config") return end
+        local name = getName()
+        if not name or name == "" then Library:Notify("Select or enter a name") return end
         self:Load(name)
     end)
+
     group:AddButton("Delete", function()
-        local name = selectedConfig or resolveName()
-        if not name or name == "" then Library:Notify("Select a config") return end
+        local name = getName()
+        if not name or name == "" then Library:Notify("Select or enter a name") return end
         self:Delete(name)
         if self:GetAutoload() == name then self:RemoveAutoload() end
         refreshList()
     end)
-    group:AddButton("Set as AutoLoad", function()
-        local name = selectedConfig or resolveName()
-        if not name or name == "" then Library:Notify("Select a config") return end
+
+    group:AddButton("Set AutoLoad", function()
+        local name = getName()
+        if not name or name == "" then Library:Notify("Select or enter a name") return end
         self:SetAutoload(name)
     end)
-    group:AddButton("Remove AutoLoad", function() self:RemoveAutoload() end)
+
+    group:AddButton("Remove AutoLoad", function()
+        self:RemoveAutoload()
+    end)
 
     return group
 end
@@ -2384,7 +2373,6 @@ function Library:AddFloatingButton(cfg)
         }, parent)
     end
 
-    -- FIX: Destroy existing floating button to prevent duplication when UI is rebuilt
     local existingBtn = floatGui:FindFirstChild("UILibFloatingBtn")
     if existingBtn then
         existingBtn:Destroy()
@@ -2497,7 +2485,7 @@ end
 
 function Library:AddFloatingWindowToggle(win, cfg)
     cfg = cfg or {}
-    cfg.Icon = cfg.Icon or "layout-dashboard"
+    cfg.Icon = cfg.Icon or "menu"
     cfg.Toggleable = true
     local fb = self:AddFloatingButton(cfg)
     local startState = win.Visible ~= false
