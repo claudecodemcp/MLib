@@ -1410,20 +1410,16 @@ local function BuildElements(holder, reg)
         local titleLbl = Label(row, o.Text or idx, 13, T.Text)
         titleLbl.Size = UDim2.new(1, 0, 0, 16)
         titleLbl.LayoutOrder = 1
-        
-        if o.Text == "Config name" then
-            titleLbl.Visible = false
-        end
 
         local inputWrap = New("Frame", {
             Size = UDim2.new(1, 0, 0, 34),
             BackgroundColor3 = T.Element,
-            BackgroundTransparency = o.Transparent and 1 or (T.ElementTransparency or 0),
+            BackgroundTransparency = T.ElementTransparency or 0,
             ClipsDescendants = true,
             LayoutOrder = 2,
         }, row)
         Corner(inputWrap, 6)
-        if not o.Transparent then Stroke(inputWrap, T.Stroke, 0.55) end
+        Stroke(inputWrap, T.Stroke, 0.55)
 
         local box = New("TextBox", {
             BackgroundTransparency = 1,
@@ -1437,7 +1433,7 @@ local function BuildElements(holder, reg)
             ClearTextOnFocus = false,
             TextXAlignment = Enum.TextXAlignment.Left,
         }, inputWrap)
-        Pad(box, o.Transparent and 0 or 10, 0, o.Transparent and 0 or 10, 0)
+        Pad(box, 10, 0, 10, 0)
 
         function obj:SetValue(v, silent)
             local str = tostring(v or "")
@@ -1447,13 +1443,13 @@ local function BuildElements(holder, reg)
             if not silent then emit(obj, o, str) end
         end
 
-        Connect(box.FocusLost, function()
-            if box.Text ~= obj.Value then obj:SetValue(box.Text) end
-        end)
-        
         Connect(box:GetPropertyChangedSignal("Text"), function()
             obj.Value = box.Text
             Library.Flags[idx] = obj.Value
+        end)
+
+        Connect(box.FocusLost, function()
+            if box.Text ~= obj.Value then obj:SetValue(box.Text) end
         end)
 
         reg(idx, obj)
@@ -2373,7 +2369,6 @@ function SaveManager:BuildConfigSection(tab, side)
         Text = "Config name",
         Placeholder = "config name here",
         Default = "",
-        Transparent = true,
     })
 
     local function resolveName()
@@ -2386,14 +2381,9 @@ function SaveManager:BuildConfigSection(tab, side)
         local name = resolveName()
         if not name or name == "" then Library:Notify("Enter a name") return end
         if self:Save(name) then
+            self:Refresh()
             local opt = Library.Options.ConfigList
-            if opt then
-                local configs = self:ListConfigs()
-                if not table.find(configs, name) then table.insert(configs, name) end
-                opt:SetValues(configs)
-                opt:SetValue(name)
-            end
-            self._selected = name
+            if opt and opt.SetValue then pcall(function() opt:SetValue(name) end) end
             nameInput:SetValue("")
         end
     end)
