@@ -1410,16 +1410,20 @@ local function BuildElements(holder, reg)
         local titleLbl = Label(row, o.Text or idx, 13, T.Text)
         titleLbl.Size = UDim2.new(1, 0, 0, 16)
         titleLbl.LayoutOrder = 1
+        
+        if o.Text == "Config name" then
+            titleLbl.Visible = false
+        end
 
         local inputWrap = New("Frame", {
             Size = UDim2.new(1, 0, 0, 34),
             BackgroundColor3 = T.Element,
-            BackgroundTransparency = T.ElementTransparency or 0,
+            BackgroundTransparency = o.Transparent and 1 or (T.ElementTransparency or 0),
             ClipsDescendants = true,
             LayoutOrder = 2,
         }, row)
         Corner(inputWrap, 6)
-        Stroke(inputWrap, T.Stroke, 0.55)
+        if not o.Transparent then Stroke(inputWrap, T.Stroke, 0.55) end
 
         local box = New("TextBox", {
             BackgroundTransparency = 1,
@@ -1433,7 +1437,7 @@ local function BuildElements(holder, reg)
             ClearTextOnFocus = false,
             TextXAlignment = Enum.TextXAlignment.Left,
         }, inputWrap)
-        Pad(box, 10, 0, 10, 0)
+        Pad(box, o.Transparent and 0 or 10, 0, o.Transparent and 0 or 10, 0)
 
         function obj:SetValue(v, silent)
             local str = tostring(v or "")
@@ -1445,6 +1449,11 @@ local function BuildElements(holder, reg)
 
         Connect(box.FocusLost, function()
             if box.Text ~= obj.Value then obj:SetValue(box.Text) end
+        end)
+        
+        Connect(box:GetPropertyChangedSignal("Text"), function()
+            obj.Value = box.Text
+            Library.Flags[idx] = obj.Value
         end)
 
         reg(idx, obj)
@@ -2183,11 +2192,15 @@ SaveManager.Ignore = { ConfigList = true, ConfigNameInput = true }
 SaveManager._selected = nil
 
 local function ensureFolder(path)
-    if not isfolder or not makefolder then return end
+    if not makefolder then return end
     local current = ""
     for part in string.gmatch(path, "[^/]+") do
         current = current == "" and part or (current .. "/" .. part)
-        if not isfolder(current) then pcall(makefolder, current) end
+        if isfolder then
+            if not isfolder(current) then pcall(makefolder, current) end
+        else
+            pcall(makefolder, current)
+        end
     end
 end
 
@@ -2356,38 +2369,12 @@ function SaveManager:BuildConfigSection(tab, side)
         Library:Notify("Refreshed")
     end)
 
-    local titleLbl = Label(group.Container, "Config name:", 13, T.Text)
-    titleLbl.Size = UDim2.new(1, 0, 0, 16)
-    titleLbl.LayoutOrder = 99
-
-    local inputRow = New("Frame", {
-        Size = UDim2.new(1, 0, 0, 34),
-        BackgroundColor3 = T.Element,
-        BackgroundTransparency = T.ElementTransparency or 0,
-        ClipsDescendants = true,
-        LayoutOrder = 100,
-    }, group.Container)
-    Corner(inputRow, 6)
-    Stroke(inputRow, T.Stroke, 0.55)
-
-    local textBox = New("TextBox", {
-        BackgroundTransparency = 1,
-        Size = UDim2.fromScale(1, 1),
-        Text = "",
-        PlaceholderText = "config name here",
-        PlaceholderColor3 = T.SubText,
-        TextColor3 = T.Text,
-        TextSize = 13,
-        Font = Enum.Font.Gotham,
-        ClearTextOnFocus = false,
-        TextXAlignment = Enum.TextXAlignment.Left,
-    }, inputRow)
-    Pad(textBox, 10, 0, 10, 0)
-
-    local nameInput = { Value = "", Type = "Input" }
-    Connect(textBox:GetPropertyChangedSignal("Text"), function() nameInput.Value = textBox.Text end)
-    Library.Options.ConfigNameInput = nameInput
-    Library.Flags.ConfigNameInput = ""
+    local nameInput = group:AddInput("ConfigNameInput", {
+        Text = "Config name",
+        Placeholder = "config name here",
+        Default = "",
+        Transparent = true,
+    })
 
     local function resolveName()
         local text = nameInput.Value
@@ -2399,12 +2386,15 @@ function SaveManager:BuildConfigSection(tab, side)
         local name = resolveName()
         if not name or name == "" then Library:Notify("Enter a name") return end
         if self:Save(name) then
-            self:Refresh()
             local opt = Library.Options.ConfigList
-            if opt and opt.SetValue then pcall(function() opt:SetValue(name) end) end
+            if opt then
+                local configs = self:ListConfigs()
+                if not table.find(configs, name) then table.insert(configs, name) end
+                opt:SetValues(configs)
+                opt:SetValue(name)
+            end
             self._selected = name
-            nameInput.Value = ""
-            textBox.Text = ""
+            nameInput:SetValue("")
         end
     end)
 
