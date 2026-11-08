@@ -415,7 +415,7 @@ function Library:Notify(text, duration)
     local isTable = type(text) == "table"
     local titleText = "Notification"
     local bodyText = ""
-
+    
     if isTable then
         titleText = tostring(text.Title or text.title or "Notification")
         bodyText = tostring(text.Description or text.description or text.Content or text.content or text.Message or text.message or "")
@@ -936,6 +936,7 @@ local function BuildElements(holder, reg)
             Value = o.Multi and {} or (o.Default or values[1]),
             Type = "Dropdown",
             Values = values,
+            Multi = o.Multi or false,
         }
         attachCallbacks(obj)
         if o.Multi and type(o.Default) == "table" then
@@ -1434,8 +1435,6 @@ local function BuildElements(holder, reg)
         }, inputWrap)
         Pad(box, 10, 0, 10, 0)
 
-        obj.TextBox = box
-
         function obj:SetValue(v, silent)
             local str = tostring(v or "")
             obj.Value = str
@@ -1505,7 +1504,7 @@ function Library:AddWindow(cfg)
 
         local iconNames = {"snowflake", "gift", "tree-pine", "snowman", "star", "sparkles"}
         local particles = {}
-
+        
         local lanes = {}
         for i = 1, 40 do
             table.insert(lanes, i / 40)
@@ -1529,7 +1528,7 @@ function Library:AddWindow(cfg)
                 ZIndex = 0,
             }, bgFrame)
             Library:ApplyIcon(lbl, iconName)
-
+            
             table.insert(particles, {
                 label = lbl,
                 y = lbl.Position.Y.Scale,
@@ -2155,10 +2154,7 @@ end
 
 local SaveManager = {}
 SaveManager.Folder = "UILib/configs"
-SaveManager.Ignore = {}
-
-function SaveManager:SetFolder(folder) self.Folder = folder or "UILib/configs" end
-function SaveManager:Ignore(key) self.Ignore[key] = true end
+SaveManager.Ignore = { ConfigList = true, ConfigName = true }
 
 local function ensureFolder(path)
     if not isfolder or not makefolder then return end
@@ -2169,55 +2165,90 @@ local function ensureFolder(path)
     end
 end
 
+function SaveManager:SetFolder(folder)
+    self.Folder = folder or "UILib/configs"
+    ensureFolder(self.Folder)
+end
+
+function SaveManager:Ignore(key) self.Ignore[key] = true end
+function SaveManager:Unignore(key) self.Ignore[key] = nil end
+function SaveManager:SetIgnoreIndexes(indexes)
+    for _, idx in ipairs(indexes or {}) do self.Ignore[idx] = true end
+end
+
+local function serializeValue(opt)
+    local t = opt.Type
+    if t == "Toggle" then
+        return opt.Value and true or false
+    elseif t == "Slider" then
+        return tonumber(opt.Value) or 0
+    elseif t == "Input" then
+        return tostring(opt.Value or "")
+    elseif t == "Keybind" then
+        if typeof(opt.Value) == "EnumItem" then return opt.Value.Name end
+        return tostring(opt.Value)
+    elseif t == "Dropdown" then
+        local v = opt.Value
+        if type(v) ~= "table" then return v end
+        if opt.Multi then
+            local list = {}
+            for k, on in pairs(v) do
+                if on then table.insert(list, k) end
+            end
+            return list
+        end
+        if v.UserId or v.Name or v.DisplayName then
+            return v.UserId or v.Name
+        end
+        return v
+    end
+    return nil
+end
+
 function SaveManager:Save(name)
     if not writefile then Library:Notify("writefile not available") return false end
+    name = tostring(name or "")
+    if name == "" then Library:Notify("Enter a config name") return false end
     ensureFolder(self.Folder)
+
     local data = {}
     for idx, opt in pairs(Library.Options) do
         if not self.Ignore[idx] and opt.Type then
-            if opt.Type == "Toggle" or opt.Type == "Slider" then
-                data[idx] = opt.Value
-            elseif opt.Type == "Keybind" then
-                data[idx] = typeof(opt.Value) == "EnumItem" and opt.Value.Name or tostring(opt.Value)
-            elseif opt.Type == "Input" then
-                data[idx] = opt.Value
-            elseif opt.Type == "Dropdown" then
-                if type(opt.Value) == "table" then
-                    local list = {}
-                    for k, v in pairs(opt.Value) do 
-                        if v then 
-                            if typeof(k) ~= "Instance" then
-                                table.insert(list, k)
-                            end
-                        end 
-                    end
-                    data[idx] = list
-                elseif typeof(opt.Value) ~= "Instance" then
-                    data[idx] = opt.Value
-                end
+            local ok, value = pcall(serializeValue, opt)
+            if ok and value ~= nil then
+                data[idx] = value
             end
         end
     end
+
     local ok, encoded = pcall(HttpService.JSONEncode, HttpService, data)
-    if not ok then Library:Notify("Failed to encode") return false end
+    if not ok then Library:Notify("Failed to encode config") return false end
+
     local path = self.Folder .. "/" .. name .. ".json"
     local success, err = pcall(writefile, path, encoded)
-    if success then Library:Notify("Saved: " .. name) return true end
+    if success then
+        Library:Notify("Saved: " .. name)
+        return true
+    end
     Library:Notify("Save failed: " .. tostring(err))
     return false
 end
 
 function SaveManager:Load(name)
     if not readfile or not isfile then Library:Notify("readfile not available") return false end
+    name = tostring(name or "")
     local path = self.Folder .. "/" .. name .. ".json"
     if not isfile(path) then Library:Notify("Not found: " .. name) return false end
+
     local ok, raw = pcall(readfile, path)
     if not ok or not raw then Library:Notify("Read failed") return false end
+
     local ok2, data = pcall(HttpService.JSONDecode, HttpService, raw)
-    if not ok2 or type(data) ~= "table" then Library:Notify("Invalid file") return false end
+    if not ok2 or type(data) ~= "table" then Library:Notify("Invalid config file") return false end
+
     for idx, value in pairs(data) do
         local opt = Library.Options[idx]
-        if opt and opt.SetValue then
+        if opt and type(opt.SetValue) == "function" and not self.Ignore[idx] then
             pcall(function()
                 if opt.Type == "Keybind" and type(value) == "string" then
                     opt:SetValue(Enum.KeyCode[value] or Enum.KeyCode.Unknown)
@@ -2227,6 +2258,7 @@ function SaveManager:Load(name)
             end)
         end
     end
+
     Library:Notify("Loaded: " .. name)
     return true
 end
@@ -2284,100 +2316,103 @@ function SaveManager:RemoveAutoload()
     return false
 end
 
+function SaveManager:Refresh()
+    local opt = Library.Options.ConfigList
+    if opt and opt.SetValues then
+        local current = opt.Value
+        opt:SetValues(self:ListConfigs())
+        if current then
+            local found = false
+            for _, v in ipairs(opt.Values) do
+                if v == current then found = true break end
+            end
+            if found then pcall(function() opt:SetValue(current) end) end
+        end
+    end
+end
+
 function SaveManager:BuildConfigSection(tab, side)
     side = side or "Right"
     local group = tab:AddGroup("Config", side, "save")
+    local configName = ""
     local selectedConfig = nil
-
-    local function refreshList()
-        local opt = Library.Options.ConfigList
-        if opt and opt.SetValues then 
-            opt:SetValues(self:ListConfigs()) 
-            if selectedConfig then
-                opt:SetValue(selectedConfig)
-            end
-        end
-    end
 
     group:AddDropdown("ConfigList", {
         Text = "Configs",
         Values = self:ListConfigs(),
         Default = nil,
-        Callback = function(v) 
-            selectedConfig = v 
-            local input = Library.Options.ConfigNameInput
-            if input and input.TextBox then
-                input.TextBox.Text = v or ""
-            end
-        end,
+        Callback = function(v) selectedConfig = v end,
     })
-
-    group:AddInput("ConfigNameInput", {
-        Text = "Config name",
-        Default = "",
-        Placeholder = "",
-    })
-
-    group:AddButton("Refresh", function()
-        refreshList()
+    group:AddButton("Refresh List", function()
+        self:Refresh()
         Library:Notify("Refreshed")
     end)
+    group:AddLabel("Config name:")
 
-    local function getName()
-        local input = Library.Options.ConfigNameInput
-        local typed = ""
-        if input then
-            if input.TextBox and input.TextBox.Text then
-                typed = tostring(input.TextBox.Text):gsub("^%s+", ""):gsub("%s+$", "")
-            else
-                typed = tostring(input.Value or ""):gsub("^%s+", ""):gsub("%s+$", "")
-            end
-        end
-        if typed ~= "" then return typed end
+    local inputRow = New("Frame", {
+        Size = UDim2.new(1, 0, 0, 34),
+        BackgroundColor3 = T.Element,
+        BackgroundTransparency = T.ElementTransparency or 0,
+        ClipsDescendants = true,
+    }, group.Container)
+    Corner(inputRow, 6)
+    Stroke(inputRow, T.Stroke, 0.55)
+
+    local textBox = New("TextBox", {
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        PlaceholderText = "config name...",
+        PlaceholderColor3 = T.SubText,
+        TextColor3 = T.Text,
+        TextSize = 13,
+        Font = Enum.Font.Gotham,
+        ClearTextOnFocus = false,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, inputRow)
+    Pad(textBox, 10, 0, 10, 0)
+    Connect(textBox:GetPropertyChangedSignal("Text"), function() configName = textBox.Text end)
+
+    local function resolveName()
+        if configName ~= "" then return configName end
         return selectedConfig
     end
 
-    group:AddButton("Add / Save", function()
-        local name = getName()
-        if not name or name == "" then 
-            Library:Notify("Enter a config name first!") 
-            return 
-        end
+    group:AddButton("Add", function()
+        local name = resolveName()
+        if not name or name == "" then Library:Notify("Enter a name") return end
         if self:Save(name) then
+            self:Refresh()
+            local opt = Library.Options.ConfigList
+            if opt and opt.SetValue then pcall(function() opt:SetValue(name) end) end
             selectedConfig = name
-            refreshList()
         end
     end)
 
+    group:AddButton("Overwrite", function()
+        local name = selectedConfig or resolveName()
+        if not name or name == "" then Library:Notify("Select a config") return end
+        self:Save(name)
+        self:Refresh()
+    end)
+
     group:AddButton("Load", function()
-        local name = getName()
-        if not name or name == "" then 
-            Library:Notify("Select or enter a name") 
-            return 
-        end
+        local name = selectedConfig or resolveName()
+        if not name or name == "" then Library:Notify("Select a config") return end
         self:Load(name)
     end)
 
     group:AddButton("Delete", function()
-        local name = getName()
-        if not name or name == "" then 
-            Library:Notify("Select or enter a name") 
-            return 
-        end
+        local name = selectedConfig or resolveName()
+        if not name or name == "" then Library:Notify("Select a config") return end
         self:Delete(name)
-        if self:GetAutoload() == name then 
-            self:RemoveAutoload() 
-        end
+        if self:GetAutoload() == name then self:RemoveAutoload() end
+        self:Refresh()
         selectedConfig = nil
-        refreshList()
     end)
 
-    group:AddButton("Set AutoLoad", function()
-        local name = getName()
-        if not name or name == "" then 
-            Library:Notify("Select or enter a name") 
-            return 
-        end
+    group:AddButton("Set as AutoLoad", function()
+        local name = selectedConfig or resolveName()
+        if not name or name == "" then Library:Notify("Select a config") return end
         self:SetAutoload(name)
     end)
 
